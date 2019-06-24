@@ -274,6 +274,7 @@ pub enum AST {
     BinaryOp(Operator, Box<AST>, Box<AST>),
     Boolean(bool),
     Integer(i64),
+    UnaryOp(Operator, Box<AST>),
     None,
 }
 
@@ -283,6 +284,7 @@ impl fmt::Display for AST {
             AST::BinaryOp(op, lhs, rhs) => write!(f, "({} {} {})", op, lhs, rhs),
             AST::Boolean(b) => write!(f, "{}:Boolean", b),
             AST::Integer(n) => write!(f, "{}:Integer", n),
+            AST::UnaryOp(op, ast) => write!(f, "({} {})", op, ast),
             AST::None => write!(f, "None"),
         }
     }
@@ -318,7 +320,42 @@ fn addition(ps: ParseState) -> ParseResult {
 }
 
 fn multiplication(ps: ParseState) -> ParseResult {
-    binary_op!(value, multiplication_operator, ps)
+    binary_op!(unary, multiplication_operator, ps)
+}
+
+fn unary(ps: ParseState) -> ParseResult {
+    let mut lps = ps.clone();
+    lps = skip!(lps, whitespace);
+    match lps.chars.peek() {
+        Some(c) => match c {
+            '!' => {
+                lps.chars.next();
+                match value(lps) {
+                    ParseResult::Matched(ast, ps) => {
+                        ParseResult::Matched(AST::UnaryOp(Operator::Not, Box::new(ast)), ps)
+                    }
+                    ParseResult::NotMatched(ps) => {
+                        ParseResult::Error("Expected value.".to_string(), ps.line, ps.col)
+                    }
+                    ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
+                }
+            }
+            '-' => {
+                lps.chars.next();
+                match value(lps) {
+                    ParseResult::Matched(ast, ps) => {
+                        ParseResult::Matched(AST::UnaryOp(Operator::Minus, Box::new(ast)), ps)
+                    }
+                    ParseResult::NotMatched(ps) => {
+                        ParseResult::Error("Expected value.".to_string(), ps.line, ps.col)
+                    }
+                    ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
+                }
+            }
+            _ => value(lps),
+        },
+        None => ParseResult::Error("Unexpected end of input.".to_string(), ps.line, ps.col),
+    }
 }
 
 fn value(ps: ParseState) -> ParseResult {
@@ -452,5 +489,7 @@ mod tests {
         parse!("1 >= 2", "(>= 1:Integer 2:Integer)");
         parse!("1 > 2", "(> 1:Integer 2:Integer)");
         parse!("1 > 2 * 4", "(> 1:Integer (* 2:Integer 4:Integer))");
+        parse!("!true || false", "(|| (! true:Boolean) false:Boolean)");
+        parse!("-42", "(- 42:Integer)");
     }
 }
