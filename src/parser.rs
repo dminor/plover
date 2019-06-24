@@ -18,6 +18,192 @@ value          -> IDENTIFIER | INTEGER | STRING | "false" | "true"
                   | "fn" "(" ( IDENTIFIER ,? ) * ")" expression end
 */
 
+macro_rules! binary_op {
+    ($value:expr, $operator:tt, $ps:expr) => {{
+        match $value($ps.clone()) {
+            ParseResult::Matched(mut lhs, ps) => {
+                let mut lps = ps.clone();
+                loop {
+                    lps = skip!(lps, whitespace);
+                    let op = $operator!(lps);
+                    lps = skip!(lps, whitespace);
+                    match $value(lps) {
+                        ParseResult::Matched(rhs, ps) => {
+                            lhs = AST::BinaryOp(op, Box::new(lhs), Box::new(rhs));
+                            lps = ps;
+                        }
+                        ParseResult::NotMatched(ps) => {
+                            return ParseResult::Error(
+                                "Expected value.".to_string(),
+                                ps.line,
+                                ps.col,
+                            );
+                        }
+                        ParseResult::Error(err, line, col) => {
+                            return ParseResult::Error(err, line, col);
+                        }
+                    }
+                }
+                ParseResult::Matched(lhs, lps)
+            }
+            ParseResult::NotMatched(ps) => ParseResult::NotMatched(ps),
+            ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
+        }
+    }};
+}
+
+macro_rules! addition_operator {
+    ($ps:expr) => {{
+        match $ps.chars.peek() {
+            Some(c) => match c {
+                '+' => {
+                    $ps.chars.next();
+                    Operator::Plus
+                }
+                '-' => {
+                    $ps.chars.next();
+                    Operator::Minus
+                }
+                '|' => {
+                    $ps.chars.next();
+                    match $ps.chars.next() {
+                        Some('|') => Operator::Or,
+                        _ => {
+                            return ParseResult::Error(
+                                "Expected |.".to_string(),
+                                $ps.line,
+                                $ps.col,
+                            );
+                        }
+                    }
+                }
+                _ => {
+                    break;
+                }
+            },
+            None => {
+                break;
+            }
+        }
+    }};
+}
+
+macro_rules! comparison_operator {
+    ($ps:expr) => {{
+        match $ps.chars.peek() {
+            Some(c) => match c {
+                '<' => {
+                    $ps.chars.next();
+                    match $ps.chars.peek() {
+                        Some('=') => {
+                            $ps.chars.next();
+                            Operator::LessEqual
+                        }
+                        _ => Operator::Less,
+                    }
+                }
+                '>' => {
+                    $ps.chars.next();
+                    match $ps.chars.peek() {
+                        Some('=') => {
+                            $ps.chars.next();
+                            Operator::GreaterEqual
+                        }
+                        _ => Operator::Greater,
+                    }
+                }
+                _ => {
+                    break;
+                }
+            },
+            None => {
+                break;
+            }
+        }
+    }};
+}
+
+macro_rules! equality_operator {
+    ($ps:expr) => {{
+        match $ps.chars.peek() {
+            Some(c) => match c {
+                '!' => {
+                    $ps.chars.next();
+                    match $ps.chars.next() {
+                        Some('=') => Operator::NotEqual,
+                        _ => {
+                            return ParseResult::Error(
+                                "Expected =.".to_string(),
+                                $ps.line,
+                                $ps.col,
+                            );
+                        }
+                    }
+                }
+                '=' => {
+                    $ps.chars.next();
+                    match $ps.chars.next() {
+                        Some('=') => Operator::Equal,
+                        _ => {
+                            return ParseResult::Error(
+                                "Expected =.".to_string(),
+                                $ps.line,
+                                $ps.col,
+                            );
+                        }
+                    }
+                }
+                _ => {
+                    break;
+                }
+            },
+            None => {
+                break;
+            }
+        }
+    }};
+}
+
+macro_rules! multiplication_operator {
+    ($ps:expr) => {{
+        match $ps.chars.peek() {
+            Some(c) => match c {
+                '*' => {
+                    $ps.chars.next();
+                    Operator::Multiply
+                }
+                '/' => {
+                    $ps.chars.next();
+                    Operator::Divide
+                }
+                '%' => {
+                    $ps.chars.next();
+                    Operator::Mod
+                }
+                '&' => {
+                    $ps.chars.next();
+                    match $ps.chars.next() {
+                        Some('&') => Operator::And,
+                        _ => {
+                            return ParseResult::Error(
+                                "Expected &.".to_string(),
+                                $ps.line,
+                                $ps.col,
+                            );
+                        }
+                    }
+                }
+                _ => {
+                    break;
+                }
+            },
+            None => {
+                break;
+            }
+        }
+    }};
+}
+
 macro_rules! or {
     ($ps:expr, $( $fn:expr),* ) => {{
         $(
@@ -120,243 +306,19 @@ fn expression(ps: ParseState) -> ParseResult {
 }
 
 fn equality(ps: ParseState) -> ParseResult {
-    match comparison(ps.clone()) {
-        ParseResult::Matched(mut lhs, ps) => {
-            let mut lps = ps.clone();
-            loop {
-                lps = skip!(lps, whitespace);
-                let op = match lps.chars.peek() {
-                    Some(c) => match c {
-                        '!' => {
-                            lps.chars.next();
-                            match lps.chars.next() {
-                                Some('=') => Operator::NotEqual,
-                                _ => {
-                                    return ParseResult::Error(
-                                        "Expected =.".to_string(),
-                                        lps.line,
-                                        lps.col,
-                                    );
-                                }
-                            }
-                        }
-                        '=' => {
-                            lps.chars.next();
-                            match lps.chars.next() {
-                                Some('=') => Operator::Equal,
-                                _ => {
-                                    return ParseResult::Error(
-                                        "Expected =.".to_string(),
-                                        lps.line,
-                                        lps.col,
-                                    );
-                                }
-                            }
-                        }
-                        _ => {
-                            break;
-                        }
-                    },
-                    None => {
-                        break;
-                    }
-                };
-                lps = skip!(lps, whitespace);
-                match comparison(lps) {
-                    ParseResult::Matched(rhs, ps) => {
-                        lhs = AST::BinaryOp(op, Box::new(lhs), Box::new(rhs));
-                        lps = ps;
-                    }
-                    ParseResult::NotMatched(ps) => {
-                        return ParseResult::Error("Expected value.".to_string(), ps.line, ps.col);
-                    }
-                    ParseResult::Error(err, line, col) => {
-                        return ParseResult::Error(err, line, col);
-                    }
-                }
-            }
-            ParseResult::Matched(lhs, lps)
-        }
-        ParseResult::NotMatched(ps) => ParseResult::NotMatched(ps),
-        ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
-    }
+    binary_op!(comparison, equality_operator, ps)
 }
 
 fn comparison(ps: ParseState) -> ParseResult {
-    match addition(ps.clone()) {
-        ParseResult::Matched(mut lhs, ps) => {
-            let mut lps = ps.clone();
-            loop {
-                lps = skip!(lps, whitespace);
-                let op = match lps.chars.peek() {
-                    Some(c) => match c {
-                        '<' => {
-                            lps.chars.next();
-                            match lps.chars.peek() {
-                                Some('=') => {
-                                    lps.chars.next();
-                                    Operator::LessEqual
-                                }
-                                _ => Operator::Less,
-                            }
-                        }
-                        '>' => {
-                            lps.chars.next();
-                            match lps.chars.peek() {
-                                Some('=') => {
-                                    lps.chars.next();
-                                    Operator::GreaterEqual
-                                }
-                                _ => Operator::Greater,
-                            }
-                        }
-                        _ => {
-                            break;
-                        }
-                    },
-                    None => {
-                        break;
-                    }
-                };
-                lps = skip!(lps, whitespace);
-                match addition(lps) {
-                    ParseResult::Matched(rhs, ps) => {
-                        lhs = AST::BinaryOp(op, Box::new(lhs), Box::new(rhs));
-                        lps = ps;
-                    }
-                    ParseResult::NotMatched(ps) => {
-                        return ParseResult::Error("Expected value.".to_string(), ps.line, ps.col);
-                    }
-                    ParseResult::Error(err, line, col) => {
-                        return ParseResult::Error(err, line, col);
-                    }
-                }
-            }
-            ParseResult::Matched(lhs, lps)
-        }
-        ParseResult::NotMatched(ps) => ParseResult::NotMatched(ps),
-        ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
-    }
+    binary_op!(addition, comparison_operator, ps)
 }
 
 fn addition(ps: ParseState) -> ParseResult {
-    match multiplication(ps.clone()) {
-        ParseResult::Matched(mut lhs, ps) => {
-            let mut lps = ps.clone();
-            loop {
-                lps = skip!(lps, whitespace);
-                let op = match lps.chars.peek() {
-                    Some(c) => match c {
-                        '+' => {
-                            lps.chars.next();
-                            Operator::Plus
-                        }
-                        '-' => {
-                            lps.chars.next();
-                            Operator::Minus
-                        }
-                        '|' => {
-                            lps.chars.next();
-                            match lps.chars.next() {
-                                Some('|') => Operator::Or,
-                                _ => {
-                                    return ParseResult::Error(
-                                        "Expected |.".to_string(),
-                                        lps.line,
-                                        lps.col,
-                                    );
-                                }
-                            }
-                        }
-                        _ => {
-                            break;
-                        }
-                    },
-                    None => {
-                        break;
-                    }
-                };
-                lps = skip!(lps, whitespace);
-                match multiplication(lps) {
-                    ParseResult::Matched(rhs, ps) => {
-                        lhs = AST::BinaryOp(op, Box::new(lhs), Box::new(rhs));
-                        lps = ps;
-                    }
-                    ParseResult::NotMatched(ps) => {
-                        return ParseResult::Error("Expected value.".to_string(), ps.line, ps.col);
-                    }
-                    ParseResult::Error(err, line, col) => {
-                        return ParseResult::Error(err, line, col);
-                    }
-                }
-            }
-            ParseResult::Matched(lhs, lps)
-        }
-        ParseResult::NotMatched(ps) => ParseResult::NotMatched(ps),
-        ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
-    }
+    binary_op!(multiplication, addition_operator, ps)
 }
 
 fn multiplication(ps: ParseState) -> ParseResult {
-    match value(ps.clone()) {
-        ParseResult::Matched(mut lhs, ps) => {
-            let mut lps = ps.clone();
-            loop {
-                lps = skip!(lps, whitespace);
-                let op = match lps.chars.peek() {
-                    Some(c) => match c {
-                        '*' => {
-                            lps.chars.next();
-                            Operator::Multiply
-                        }
-                        '/' => {
-                            lps.chars.next();
-                            Operator::Divide
-                        }
-                        '%' => {
-                            lps.chars.next();
-                            Operator::Mod
-                        }
-                        '&' => {
-                            lps.chars.next();
-                            match lps.chars.next() {
-                                Some('&') => Operator::And,
-                                _ => {
-                                    return ParseResult::Error(
-                                        "Expected &.".to_string(),
-                                        lps.line,
-                                        lps.col,
-                                    );
-                                }
-                            }
-                        }
-                        _ => {
-                            break;
-                        }
-                    },
-                    None => {
-                        break;
-                    }
-                };
-                lps = skip!(lps, whitespace);
-                match value(lps) {
-                    ParseResult::Matched(rhs, ps) => {
-                        lhs = AST::BinaryOp(op, Box::new(lhs), Box::new(rhs));
-                        lps = ps;
-                    }
-                    ParseResult::NotMatched(ps) => {
-                        return ParseResult::Error("Expected value.".to_string(), ps.line, ps.col);
-                    }
-                    ParseResult::Error(err, line, col) => {
-                        return ParseResult::Error(err, line, col);
-                    }
-                }
-            }
-            ParseResult::Matched(lhs, lps)
-        }
-        ParseResult::NotMatched(ps) => ParseResult::NotMatched(ps),
-        ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
-    }
+    binary_op!(value, multiplication_operator, ps)
 }
 
 fn value(ps: ParseState) -> ParseResult {
@@ -481,5 +443,14 @@ mod tests {
         parse!("1 * 2", "(* 1:Integer 2:Integer)");
         parse!("1 / 2", "(/ 1:Integer 2:Integer)");
         parse!("1 / 2 + 5", "(+ (/ 1:Integer 2:Integer) 5:Integer)");
+        parse!("true && false", "(&& true:Boolean false:Boolean)");
+        parse!("true || false", "(|| true:Boolean false:Boolean)");
+        parse!("1 < 2", "(< 1:Integer 2:Integer)");
+        parse!("1 <= 2", "(<= 1:Integer 2:Integer)");
+        parse!("1 == 2", "(== 1:Integer 2:Integer)");
+        parse!("1 != 2", "(!= 1:Integer 2:Integer)");
+        parse!("1 >= 2", "(>= 1:Integer 2:Integer)");
+        parse!("1 > 2", "(> 1:Integer 2:Integer)");
+        parse!("1 > 2 * 4", "(> 1:Integer (* 2:Integer 4:Integer))");
     }
 }
