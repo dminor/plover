@@ -491,5 +491,13 @@ mod tests {
         parse!("1 > 2 * 4", "(> 1:Integer (* 2:Integer 4:Integer))");
         parse!("!true || false", "(|| (! true:Boolean) false:Boolean)");
         parse!("-42", "(- 42:Integer)");
+        parse!(
+            "2 < 3 == 3 < 4",
+            "(== (< 2:Integer 3:Integer) (< 3:Integer 4:Integer))"
+        );
+        parse!(
+            "2 * 3 != 1 - 2",
+            "(!= (* 2:Integer 3:Integer) (- 1:Integer 2:Integer))"
+        );
     }
 }
