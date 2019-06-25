@@ -233,39 +233,39 @@ macro_rules! skip {
 }
 
 pub enum Operator {
-    Plus,
-    Minus,
-    Multiply,
-    Divide,
-    Mod,
     And,
-    Not,
-    Or,
-    Less,
-    LessEqual,
+    Divide,
     Equal,
-    NotEqual,
     GreaterEqual,
     Greater,
+    Less,
+    LessEqual,
+    Minus,
+    Mod,
+    Multiply,
+    Not,
+    NotEqual,
+    Or,
+    Plus,
 }
 
 impl fmt::Display for Operator {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Operator::Plus => write!(f, "+"),
-            Operator::Minus => write!(f, "-"),
-            Operator::Multiply => write!(f, "*"),
-            Operator::Divide => write!(f, "/"),
-            Operator::Mod => write!(f, "%"),
             Operator::And => write!(f, "&&"),
-            Operator::Not => write!(f, "!"),
-            Operator::Or => write!(f, "||"),
+            Operator::Divide => write!(f, "/"),
+            Operator::Equal => write!(f, "=="),
+            Operator::Greater => write!(f, ">"),
+            Operator::GreaterEqual => write!(f, ">="),
             Operator::Less => write!(f, "<"),
             Operator::LessEqual => write!(f, "<="),
-            Operator::Equal => write!(f, "=="),
+            Operator::Minus => write!(f, "-"),
+            Operator::Multiply => write!(f, "*"),
+            Operator::Mod => write!(f, "%"),
+            Operator::Not => write!(f, "!"),
             Operator::NotEqual => write!(f, "!="),
-            Operator::GreaterEqual => write!(f, ">="),
-            Operator::Greater => write!(f, ">"),
+            Operator::Or => write!(f, "||"),
+            Operator::Plus => write!(f, "+"),
         }
     }
 }
