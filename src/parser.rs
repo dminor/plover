@@ -391,7 +391,7 @@ fn conditional(ps: ParseState) -> ParseResult {
                                     },
                                     None => {
                                         return ParseResult::Error(
-                                            "Expected elsif or then.".to_string(),
+                                            "Expected elsif or else.".to_string(),
                                             lps.line,
                                             lps.col,
                                         );

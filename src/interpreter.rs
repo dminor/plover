@@ -100,7 +100,29 @@ fn generate(ast: &parser::AST, vm: &mut vm::VirtualMachine, instr: &mut Vec<vm::
         parser::AST::Boolean(b) => {
             instr.push(vm::Opcode::Bconst(*b));
         }
-        parser::AST::If(_, _) => {}
+        parser::AST::If(conds, els) => {
+            let start_ip = instr.len();
+            for cond in conds {
+                let mut then = Vec::new();
+                generate(&cond.0, vm, instr);
+                generate(&cond.1, vm, &mut then);
+                let offset = 2 + then.len() as i64;
+                instr.push(vm::Opcode::Jz(offset));
+                instr.extend(then);
+                instr.push(vm::Opcode::Jmp(i64::max_value()));
+            }
+            generate(&els, vm, instr);
+
+            // TODO: this rewrites all jmp instructions to be past the end of
+            // the if expression. This is safe as long as if is the only
+            // expression for which we use jmp.
+            for i in start_ip..instr.len() {
+                if let vm::Opcode::Jmp(_) = instr[i] {
+                    let offset = (instr.len() - i) as i64;
+                    instr[i] = vm::Opcode::Jmp(offset);
+                }
+            }
+        }
         parser::AST::Integer(i) => {
             instr.push(vm::Opcode::Iconst(*i));
         }
@@ -293,6 +315,11 @@ pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<Value, Int
             generate(ast, vm, &mut instr);
             vm.ip = vm.instructions.len();
             vm.instructions.extend(instr);
+            // TODO: This is useful for debugging. Add an argument to enable it.
+            //println!("disassembly:");
+            //for i in 0..vm.instructions.len() {
+            //    println!("  {} {}", i, vm.instructions[i]);
+            //}
             match vm.run() {
                 Ok(()) => match vm.stack.pop() {
                     Some(v) => match typ {
@@ -441,6 +468,14 @@ mod tests {
         evalfails!(
             "if 1 then false else true end",
             "Type error: expected boolean."
+        );
+        eval!("if true then 1 else 2 end", Integer, 1);
+        eval!("if false then 1 else 2 end", Integer, 2);
+        eval!("if false then 1 elsif true then 2 else 3 end", Integer, 2);
+        eval!(
+            "if true then if false then 1 else 2 end else 3 end",
+            Integer,
+            2
         );
     }
 }

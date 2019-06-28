@@ -1,4 +1,5 @@
 use crate::interpreter;
+use std::fmt;
 
 macro_rules! err {
     ($vm:expr, $msg:expr) => {{
@@ -19,6 +20,8 @@ pub enum Opcode {
     Greater,
     GreaterEqual,
     Iconst(i64),
+    Jmp(i64),
+    Jz(i64),
     Less,
     LessEqual,
     Mod,
@@ -28,6 +31,32 @@ pub enum Opcode {
     Or,
     Srcpos(usize, usize),
     Sub,
+}
+
+impl fmt::Display for Opcode {
+    fn fmt<'a>(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Opcode::Add => write!(f, "add"),
+            Opcode::And => write!(f, "and"),
+            Opcode::Bconst(b) => write!(f, "const {}", b),
+            Opcode::Div => write!(f, "div"),
+            Opcode::Equal => write!(f, "eq"),
+            Opcode::Greater => write!(f, "gt"),
+            Opcode::GreaterEqual => write!(f, "ge"),
+            Opcode::Iconst(i) => write!(f, "const {}", i),
+            Opcode::Jmp(ip) => write!(f, "jmp {}", ip),
+            Opcode::Jz(ip) => write!(f, "jz {}", ip),
+            Opcode::Less => write!(f, "lt"),
+            Opcode::LessEqual => write!(f, "le"),
+            Opcode::Mod => write!(f, "mod"),
+            Opcode::Mul => write!(f, "mul"),
+            Opcode::Not => write!(f, "not"),
+            Opcode::NotEqual => write!(f, "neq"),
+            Opcode::Or => write!(f, "or"),
+            Opcode::Srcpos(line, col) => write!(f, "srcpos {} {}", line, col),
+            Opcode::Sub => write!(f, "sub"),
+        }
+    }
 }
 
 pub struct VirtualMachine {
@@ -107,6 +136,19 @@ impl VirtualMachine {
                 Opcode::Iconst(i) => {
                     self.stack.push(*i);
                 }
+                Opcode::Jmp(offset) => {
+                    self.ip = (self.ip as i64 + offset) as usize;
+                    continue;
+                }
+                Opcode::Jz(offset) => match self.stack.pop() {
+                    Some(v) => {
+                        if v == 0 {
+                            self.ip = (self.ip as i64 + offset) as usize;
+                            continue;
+                        }
+                    }
+                    None => err!(self, "Stack underflow."),
+                },
                 Opcode::Less => match self.stack.pop() {
                     Some(x) => match self.stack.pop() {
                         Some(y) => {
