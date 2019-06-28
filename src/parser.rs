@@ -164,6 +164,34 @@ macro_rules! equality_operator {
     }};
 }
 
+macro_rules! expect {
+    ($ps:expr, $($keyword:expr),* ) => {{
+        let mut s = String::new();
+        loop {
+            match $ps.chars.peek() {
+                Some(c) => {
+                    if c.is_alphabetic() {
+                        s.push(*c);
+                        $ps.chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                _ => {
+                    break;
+                }
+            }
+        }
+        let mut result = None;
+        $(
+            if s == $keyword {
+                result = Some(s.to_string());
+            }
+        )*
+        result
+    }};
+}
+
 macro_rules! multiplication_operator {
     ($ps:expr) => {{
         match $ps.chars.peek() {
@@ -390,26 +418,13 @@ fn whitespace(ps: ParseState) -> ParseResult {
 
 fn boolean(ps: ParseState) -> ParseResult {
     let mut lps = ps.clone();
-    let mut s = String::new();
-    loop {
-        match lps.chars.peek() {
-            Some(c) => {
-                if c.is_alphabetic() {
-                    s.push(*c);
-                    lps.chars.next();
-                } else {
-                    break;
-                }
-            }
-            _ => {
-                break;
-            }
-        }
-    }
-    match &s[..] {
-        "true" => ParseResult::Matched(AST::Boolean(true), lps),
-        "false" => ParseResult::Matched(AST::Boolean(false), lps),
-        _ => ParseResult::NotMatched(ps),
+    match expect!(lps, "true", "false") {
+        Some(s) => match &s[..] {
+            "true" => ParseResult::Matched(AST::Boolean(true), lps),
+            "false" => ParseResult::Matched(AST::Boolean(false), lps),
+            _ => unreachable!(),
+        },
+        None => ParseResult::NotMatched(lps),
     }
 }
 
