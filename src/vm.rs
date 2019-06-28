@@ -68,6 +68,9 @@ impl VirtualMachine {
                 Opcode::Div => match self.stack.pop() {
                     Some(x) => match self.stack.pop() {
                         Some(y) => {
+                            if y == 0 {
+                                err!(self, "Division by zero.")
+                            }
                             self.stack.push(x / y);
                         }
                         None => err!(self, "Stack underflow."),
@@ -125,6 +128,9 @@ impl VirtualMachine {
                 Opcode::Mod => match self.stack.pop() {
                     Some(x) => match self.stack.pop() {
                         Some(y) => {
+                            if y == 0 {
+                                err!(self, "Division by zero.")
+                            }
                             self.stack.push(x % y);
                         }
                         None => err!(self, "Stack underflow."),
@@ -189,8 +195,8 @@ impl VirtualMachine {
             instructions: Vec::new(),
             ip: 0,
             stack: Vec::new(),
-            line: 0,
-            col: 0,
+            line: usize::max_value(),
+            col: usize::max_value(),
         }
     }
 }

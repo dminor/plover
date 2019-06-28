@@ -352,5 +352,7 @@ mod tests {
         evalfails!("0 <= false", "Type error: expected integer.");
         eval!("(1 + 2) * 5", Integer, 15);
         eval!("1 + 2 * 5", Integer, 11);
+        evalfails!("1 / 0", "Division by zero.");
+        evalfails!("1 % 0", "Division by zero.");
     }
 }
