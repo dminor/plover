@@ -9,6 +9,20 @@ enum Type {
     Integer,
 }
 
+pub enum Value {
+    Boolean(bool),
+    Integer(i64),
+}
+
+impl fmt::Display for Value {
+    fn fmt<'a>(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Value::Boolean(b) => write!(f, "{}", b),
+            Value::Integer(v) => write!(f, "{}", v),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct InterpreterError {
     pub err: String,
@@ -103,10 +117,6 @@ fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
             Ok(rhs_type) => match typecheck(lhs) {
                 Ok(lhs_type) => match op {
                     parser::Operator::Divide
-                    | parser::Operator::Greater
-                    | parser::Operator::GreaterEqual
-                    | parser::Operator::Less
-                    | parser::Operator::LessEqual
                     | parser::Operator::Minus
                     | parser::Operator::Mod
                     | parser::Operator::Multiply
@@ -119,6 +129,20 @@ fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
                             })
                         } else {
                             Ok(Type::Integer)
+                        }
+                    }
+                    parser::Operator::Greater
+                    | parser::Operator::GreaterEqual
+                    | parser::Operator::Less
+                    | parser::Operator::LessEqual => {
+                        if rhs_type != Type::Integer || lhs_type != Type::Integer {
+                            Err(InterpreterError {
+                                err: "Type error: expected integer.".to_string(),
+                                line: usize::max_value(),
+                                col: usize::max_value(),
+                            })
+                        } else {
+                            Ok(Type::Boolean)
                         }
                     }
                     parser::Operator::And | parser::Operator::Or => {
@@ -191,29 +215,31 @@ fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
     }
 }
 
-pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<i64, InterpreterError> {
+pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<Value, InterpreterError> {
     match typecheck(ast) {
-        Ok(_) => {}
+        Ok(typ) => {
+            let mut instr = Vec::new();
+            generate(ast, vm, &mut instr);
+            vm.ip = vm.instructions.len();
+            vm.instructions.extend(instr);
+            match vm.run() {
+                Ok(()) => match vm.stack.pop() {
+                    Some(v) => match typ {
+                        Type::Boolean => Ok(Value::Boolean(v != 0)),
+                        Type::Integer => Ok(Value::Integer(v)),
+                    },
+                    None => Err(InterpreterError {
+                        err: "Stack underflow.".to_string(),
+                        line: usize::max_value(),
+                        col: usize::max_value(),
+                    }),
+                },
+                Err(e) => Err(e),
+            }
+        }
         Err(err) => {
             return Err(err);
         }
-    }
-
-    let mut instr = Vec::new();
-    generate(ast, vm, &mut instr);
-    vm.ip = vm.instructions.len();
-    vm.instructions.extend(instr);
-
-    match vm.run() {
-        Ok(()) => match vm.stack.pop() {
-            Some(v) => Ok(v),
-            None => Err(InterpreterError {
-                err: "Stack underflow.".to_string(),
-                line: usize::max_value(),
-                col: usize::max_value(),
-            }),
-        },
-        Err(e) => Err(e),
     }
 }
 
@@ -224,13 +250,18 @@ mod tests {
     use crate::vm;
 
     macro_rules! eval {
-        ($input:expr, $value:expr) => {{
+        ($input:expr, $type:tt, $value:expr) => {{
             let mut vm = vm::VirtualMachine::new();
             match parser::parse($input) {
                 parser::ParseResult::Matched(ast, _) => match interpreter::eval(&mut vm, &ast) {
-                    Ok(v) => {
-                        assert_eq!(v, $value);
-                    }
+                    Ok(v) => match v {
+                        interpreter::Value::$type(t) => {
+                            assert_eq!(t, $value);
+                        }
+                        _ => {
+                            assert!(false);
+                        }
+                    },
                     Err(_) => {
                         assert!(false);
                     }
@@ -290,22 +321,22 @@ mod tests {
 
     #[test]
     fn evals() {
-        eval!("1 + 2", 3);
-        eval!("1 - 2", -1);
-        eval!("1 * 2", 2);
-        eval!("4 / 2", 2);
-        eval!("true && false", 0);
-        eval!("true || false", 1);
-        eval!("21 % 6", 3);
-        eval!("!true", 0);
-        eval!("-42", -42);
-        eval!("1 < 2", 1);
-        eval!("2 <= 2", 1);
-        eval!("2 == 2", 1);
-        eval!("2 != 2", 0);
-        eval!("1 > 2", 0);
-        eval!("2 >= 2", 1);
-        eval!("5 * 4 * 3 * 2 * 1", 120);
+        eval!("1 + 2", Integer, 3);
+        eval!("1 - 2", Integer, -1);
+        eval!("1 * 2", Integer, 2);
+        eval!("4 / 2", Integer, 2);
+        eval!("true && false", Boolean, false);
+        eval!("true || false", Boolean, true);
+        eval!("21 % 6", Integer, 3);
+        eval!("!true", Boolean, false);
+        eval!("-42", Integer, -42);
+        eval!("1 < 2", Boolean, true);
+        eval!("2 <= 2", Boolean, true);
+        eval!("2 == 2", Boolean, true);
+        eval!("2 != 2", Boolean, false);
+        eval!("1 > 2", Boolean, false);
+        eval!("2 >= 2", Boolean, true);
+        eval!("5 * 4 * 3 * 2 * 1", Integer, 120);
         typecheck!("5", interpreter::Type::Integer);
         typecheck!("true", interpreter::Type::Boolean);
         typecheck!("2 + 5 + 3", interpreter::Type::Integer);
