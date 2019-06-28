@@ -91,6 +91,7 @@ fn generate(ast: &parser::AST, vm: &mut vm::VirtualMachine, instr: &mut Vec<vm::
         parser::AST::Boolean(b) => {
             instr.push(vm::Opcode::Bconst(*b));
         }
+        parser::AST::If(_, _) => {}
         parser::AST::Integer(i) => {
             instr.push(vm::Opcode::Iconst(*i));
         }
@@ -174,6 +175,7 @@ fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
             Err(err) => Err(err),
         },
         parser::AST::Boolean(_) => Ok(Type::Boolean),
+        parser::AST::If(_, _) => Ok(Type::Integer),
         parser::AST::Integer(_) => Ok(Type::Integer),
         parser::AST::UnaryOp(op, ast) => match typecheck(ast) {
             Ok(ast_type) => match op {

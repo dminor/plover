@@ -301,6 +301,7 @@ impl fmt::Display for Operator {
 pub enum AST {
     BinaryOp(Operator, Box<AST>, Box<AST>),
     Boolean(bool),
+    If(Vec<(AST, AST)>, Box<AST>),
     Integer(i64),
     UnaryOp(Operator, Box<AST>),
     None,
@@ -311,6 +312,13 @@ impl fmt::Display for AST {
         match self {
             AST::BinaryOp(op, lhs, rhs) => write!(f, "({} {} {})", op, lhs, rhs),
             AST::Boolean(b) => write!(f, "{}:Boolean", b),
+            AST::If(conds, els) => {
+                write!(f, "(if ")?;
+                for cond in conds {
+                    write!(f, "(cond {} {}) ", cond.0, cond.1)?;
+                }
+                write!(f, "(else {}))", els)
+            }
             AST::Integer(n) => write!(f, "{}:Integer", n),
             AST::UnaryOp(op, ast) => write!(f, "({} {})", op, ast),
             AST::None => write!(f, "None"),
@@ -332,7 +340,94 @@ pub struct ParseState<'a> {
 }
 
 fn expression(ps: ParseState) -> ParseResult {
-    equality(ps)
+    or!(ps, conditional, equality)
+}
+
+fn conditional(ps: ParseState) -> ParseResult {
+    let mut lps = ps.clone();
+    lps = skip!(lps, whitespace);
+    let mut conds = Vec::<(AST, AST)>::new();
+    match expect!(lps, "if") {
+        Some(_) => loop {
+            match expression(lps) {
+                ParseResult::Matched(cond, ps) => {
+                    lps = skip!(ps, whitespace);
+                    match expect!(lps, "then") {
+                        Some(_) => match expression(lps) {
+                            ParseResult::Matched(then, ps) => {
+                                lps = skip!(ps, whitespace);
+                                conds.push((cond, then));
+                                match expect!(lps, "elsif", "else") {
+                                    Some(s) => match &s[..] {
+                                        "else" => match expression(lps) {
+                                            ParseResult::Matched(els, ps) => {
+                                                lps = skip!(ps, whitespace);
+                                                if let Some(_) = expect!(lps, "end") {
+                                                    return ParseResult::Matched(
+                                                        AST::If(conds, Box::new(els)),
+                                                        lps,
+                                                    );
+                                                } else {
+                                                    return ParseResult::Error(
+                                                        "Expected end.".to_string(),
+                                                        lps.line,
+                                                        lps.col,
+                                                    );
+                                                }
+                                            }
+                                            ParseResult::NotMatched(ps) => {
+                                                return ParseResult::Error(
+                                                    "Expected expression.".to_string(),
+                                                    ps.line,
+                                                    ps.col,
+                                                );
+                                            }
+                                            ParseResult::Error(err, line, col) => {
+                                                return ParseResult::Error(err, line, col);
+                                            }
+                                        },
+                                        "elsif" => {}
+                                        _ => unreachable!(),
+                                    },
+                                    None => {
+                                        return ParseResult::Error(
+                                            "Expected elsif or then.".to_string(),
+                                            lps.line,
+                                            lps.col,
+                                        );
+                                    }
+                                }
+                            }
+                            ParseResult::NotMatched(ps) => {
+                                return ParseResult::Error(
+                                    "Expected expression.".to_string(),
+                                    ps.line,
+                                    ps.col,
+                                )
+                            }
+                            ParseResult::Error(err, line, col) => {
+                                return ParseResult::Error(err, line, col);
+                            }
+                        },
+                        None => {
+                            return ParseResult::Error(
+                                "Expected then clause.".to_string(),
+                                lps.line,
+                                lps.col,
+                            );
+                        }
+                    }
+                }
+                ParseResult::NotMatched(ps) => {
+                    return ParseResult::Error("Expected expression.".to_string(), ps.line, ps.col)
+                }
+                ParseResult::Error(err, line, col) => {
+                    return ParseResult::Error(err, line, col);
+                }
+            }
+        },
+        None => ParseResult::NotMatched(ps),
+    }
 }
 
 fn equality(ps: ParseState) -> ParseResult {
@@ -539,6 +634,34 @@ mod tests {
         parse!(
             "(1 < 2) == false",
             "(== (< 1:Integer 2:Integer) false:Boolean)"
+        );
+        parse!(
+            "if true then 1 else 2 end",
+            "(if (cond true:Boolean 1:Integer) (else 2:Integer))"
+        );
+        parse!(
+            "if true then
+                1
+             elsif false then
+                2
+             else
+                3
+             end",
+            "(if (cond true:Boolean 1:Integer) (cond false:Boolean 2:Integer) (else 3:Integer))"
+        );
+        parse!(
+            "if true then
+                if true then
+                    1
+                else
+                    2
+                end
+             elsif false then
+                3
+             else
+                4
+             end",
+            "(if (cond true:Boolean (if (cond true:Boolean 1:Integer) (else 2:Integer))) (cond false:Boolean 3:Integer) (else 4:Integer))"
         );
     }
 }
