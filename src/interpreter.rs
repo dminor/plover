@@ -9,6 +9,15 @@ enum Type {
     Integer,
 }
 
+impl fmt::Display for Type {
+    fn fmt<'a>(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Type::Boolean => write!(f, "boolean"),
+            Type::Integer => write!(f, "integer"),
+        }
+    }
+}
+
 pub enum Value {
     Boolean(bool),
     Integer(i64),
@@ -175,7 +184,67 @@ fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
             Err(err) => Err(err),
         },
         parser::AST::Boolean(_) => Ok(Type::Boolean),
-        parser::AST::If(_, _) => Ok(Type::Integer),
+        parser::AST::If(conds, els) => {
+            let mut first = true;
+            let mut inferred_type = Type::Boolean;
+            for cond in conds {
+                match typecheck(&cond.0) {
+                    Ok(Type::Boolean) => {}
+                    Err(err) => {
+                        return Err(err);
+                    }
+                    _ => {
+                        return Err(InterpreterError {
+                            err: "Type error: expected boolean.".to_string(),
+                            line: usize::max_value(),
+                            col: usize::max_value(),
+                        });
+                    }
+                }
+                match typecheck(&cond.1) {
+                    Ok(t) => {
+                        if first {
+                            first = false;
+                            inferred_type = t;
+                        } else if inferred_type != t {
+                            let mut err = "Type mismatch: expected ".to_string();
+                            err.push_str(&inferred_type.to_string());
+                            err.push_str(" found ");
+                            err.push_str(&t.to_string());
+                            err.push('.');
+                            return Err(InterpreterError {
+                                err: err,
+                                line: usize::max_value(),
+                                col: usize::max_value(),
+                            });
+                        }
+                    }
+                    Err(err) => {
+                        return Err(err);
+                    }
+                }
+            }
+            match typecheck(&els) {
+                Ok(t) => {
+                    if inferred_type != t {
+                        let mut err = "Type mismatch: expected ".to_string();
+                        err.push_str(&inferred_type.to_string());
+                        err.push_str(" found ");
+                        err.push_str(&t.to_string());
+                        err.push('.');
+                        return Err(InterpreterError {
+                            err: err,
+                            line: usize::max_value(),
+                            col: usize::max_value(),
+                        });
+                    }
+                }
+                Err(err) => {
+                    return Err(err);
+                }
+            }
+            Ok(inferred_type)
+        }
         parser::AST::Integer(_) => Ok(Type::Integer),
         parser::AST::UnaryOp(op, ast) => match typecheck(ast) {
             Ok(ast_type) => match op {
@@ -356,5 +425,22 @@ mod tests {
         eval!("1 + 2 * 5", Integer, 11);
         evalfails!("1 / 0", "Division by zero.");
         evalfails!("1 % 0", "Division by zero.");
+        typecheck!("if true then 1 else 2 end", interpreter::Type::Integer);
+        evalfails!(
+            "if true then 1 else false end",
+            "Type mismatch: expected integer found boolean."
+        );
+        evalfails!(
+            "if true then 1 elsif true then false else 2 end",
+            "Type mismatch: expected integer found boolean."
+        );
+        evalfails!(
+            "if true then false else 1 end",
+            "Type mismatch: expected boolean found integer."
+        );
+        evalfails!(
+            "if 1 then false else true end",
+            "Type error: expected boolean."
+        );
     }
 }
