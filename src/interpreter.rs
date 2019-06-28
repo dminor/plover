@@ -1,5 +1,28 @@
 use crate::parser;
 use crate::vm;
+use std::error::Error;
+use std::fmt;
+
+#[derive(Debug, PartialEq)]
+enum Type {
+    Boolean,
+    Integer,
+}
+
+#[derive(Debug)]
+pub struct InterpreterError {
+    pub err: String,
+    pub line: usize,
+    pub col: usize,
+}
+
+impl fmt::Display for InterpreterError {
+    fn fmt<'a>(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "InterpreterError: {}", self.err)
+    }
+}
+
+impl Error for InterpreterError {}
 
 fn generate(ast: &parser::AST, vm: &mut vm::VirtualMachine, instr: &mut Vec<vm::Opcode>) {
     match ast {
@@ -74,7 +97,108 @@ fn generate(ast: &parser::AST, vm: &mut vm::VirtualMachine, instr: &mut Vec<vm::
     }
 }
 
-pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<i64, vm::RuntimeError> {
+fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
+    match ast {
+        parser::AST::BinaryOp(op, lhs, rhs) => match typecheck(rhs) {
+            Ok(rhs_type) => match typecheck(lhs) {
+                Ok(lhs_type) => match op {
+                    parser::Operator::Divide
+                    | parser::Operator::Greater
+                    | parser::Operator::GreaterEqual
+                    | parser::Operator::Less
+                    | parser::Operator::LessEqual
+                    | parser::Operator::Minus
+                    | parser::Operator::Mod
+                    | parser::Operator::Multiply
+                    | parser::Operator::Plus => {
+                        if rhs_type != Type::Integer || lhs_type != Type::Integer {
+                            Err(InterpreterError {
+                                err: "Type error: expected integer.".to_string(),
+                                line: usize::max_value(),
+                                col: usize::max_value(),
+                            })
+                        } else {
+                            Ok(Type::Integer)
+                        }
+                    }
+                    parser::Operator::And | parser::Operator::Or => {
+                        if rhs_type != Type::Boolean || lhs_type != Type::Boolean {
+                            Err(InterpreterError {
+                                err: "Type error: expected boolean.".to_string(),
+                                line: usize::max_value(),
+                                col: usize::max_value(),
+                            })
+                        } else {
+                            Ok(Type::Boolean)
+                        }
+                    }
+                    parser::Operator::Not => unreachable!(),
+                    parser::Operator::Equal | parser::Operator::NotEqual => {
+                        if rhs_type != lhs_type {
+                            Err(InterpreterError {
+                                err: "Type error: type mismatch.".to_string(),
+                                line: usize::max_value(),
+                                col: usize::max_value(),
+                            })
+                        } else {
+                            Ok(Type::Boolean)
+                        }
+                    }
+                },
+                Err(err) => Err(err),
+            },
+            Err(err) => Err(err),
+        },
+        parser::AST::Boolean(_) => Ok(Type::Boolean),
+        parser::AST::Integer(_) => Ok(Type::Integer),
+        parser::AST::UnaryOp(op, ast) => match typecheck(ast) {
+            Ok(ast_type) => match op {
+                parser::Operator::Minus => {
+                    if ast_type == Type::Integer {
+                        Ok(Type::Integer)
+                    } else {
+                        Err(InterpreterError {
+                            err: "Type error: expected integer.".to_string(),
+                            line: usize::max_value(),
+                            col: usize::max_value(),
+                        })
+                    }
+                }
+                parser::Operator::Not => {
+                    if ast_type == Type::Boolean {
+                        Ok(Type::Boolean)
+                    } else {
+                        Err(InterpreterError {
+                            err: "Type error: expected boolean.".to_string(),
+                            line: usize::max_value(),
+                            col: usize::max_value(),
+                        })
+                    }
+                }
+                _ => Err(InterpreterError {
+                    err: "Invalid unary operator.".to_string(),
+                    line: usize::max_value(),
+                    col: usize::max_value(),
+                }),
+            },
+            Err(err) => Err(err),
+        },
+        parser::AST::None => Err(InterpreterError {
+            err: "None has no type.".to_string(),
+            line: usize::max_value(),
+            col: usize::max_value(),
+        }),
+    }
+}
+
+pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<i64, InterpreterError> {
+    match typecheck(ast) {
+        Ok(_) => {}
+        Err(err) => {
+            return Err(err);
+        }
+    }
+
     let mut instr = Vec::new();
     generate(ast, vm, &mut instr);
     vm.ip = vm.instructions.len();
@@ -83,13 +207,11 @@ pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<i64, vm::R
     match vm.run() {
         Ok(()) => match vm.stack.pop() {
             Some(v) => Ok(v),
-            None => {
-                return Err(vm::RuntimeError {
-                    err: "Stack underflow.".to_string(),
-                    line: usize::max_value(),
-                    col: usize::max_value(),
-                });
-            }
+            None => Err(InterpreterError {
+                err: "Stack underflow.".to_string(),
+                line: usize::max_value(),
+                col: usize::max_value(),
+            }),
         },
         Err(e) => Err(e),
     }
@@ -123,6 +245,49 @@ mod tests {
         }};
     }
 
+    macro_rules! evalfails {
+        ($input:expr, $err:expr) => {{
+            let mut vm = vm::VirtualMachine::new();
+            match parser::parse($input) {
+                parser::ParseResult::Matched(ast, _) => match interpreter::eval(&mut vm, &ast) {
+                    Ok(_) => {
+                        assert!(false);
+                    }
+                    Err(err) => {
+                        assert_eq!(err.err, $err);
+                    }
+                },
+                parser::ParseResult::NotMatched(_) => {
+                    assert!(false);
+                }
+                parser::ParseResult::Error(_, _, _) => {
+                    assert!(false);
+                }
+            }
+        }};
+    }
+
+    macro_rules! typecheck {
+        ($input:expr, $value:expr) => {{
+            match parser::parse($input) {
+                parser::ParseResult::Matched(ast, _) => match interpreter::typecheck(&ast) {
+                    Ok(typ) => {
+                        assert_eq!(typ, $value);
+                    }
+                    Err(_) => {
+                        assert!(false);
+                    }
+                },
+                parser::ParseResult::NotMatched(_) => {
+                    assert!(false);
+                }
+                parser::ParseResult::Error(_, _, _) => {
+                    assert!(false);
+                }
+            }
+        }};
+    }
+
     #[test]
     fn evals() {
         eval!("1 + 2", 3);
@@ -141,5 +306,18 @@ mod tests {
         eval!("1 > 2", 0);
         eval!("2 >= 2", 1);
         eval!("5 * 4 * 3 * 2 * 1", 120);
+        typecheck!("5", interpreter::Type::Integer);
+        typecheck!("true", interpreter::Type::Boolean);
+        typecheck!("2 + 5 + 3", interpreter::Type::Integer);
+        typecheck!("true && false", interpreter::Type::Boolean);
+        typecheck!("!false", interpreter::Type::Boolean);
+        typecheck!("-1", interpreter::Type::Integer);
+        evalfails!("1 + true", "Type error: expected integer.");
+        evalfails!("1 && true", "Type error: expected boolean.");
+        evalfails!("!1", "Type error: expected boolean.");
+        evalfails!("-false", "Type error: expected integer.");
+        evalfails!("1 == true", "Type error: type mismatch.");
+        evalfails!("1 != false", "Type error: type mismatch.");
+        evalfails!("0 <= false", "Type error: expected integer.");
     }
 }

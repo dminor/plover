@@ -1,24 +1,8 @@
-use std::error::Error;
-use std::fmt;
-
-#[derive(Debug)]
-pub struct RuntimeError {
-    pub err: String,
-    pub line: usize,
-    pub col: usize,
-}
-
-impl fmt::Display for RuntimeError {
-    fn fmt<'a>(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "RuntimeError: {}", self.err)
-    }
-}
-
-impl Error for RuntimeError {}
+use crate::interpreter;
 
 macro_rules! err {
     ($vm:expr, $msg:expr) => {{
-        return Err(RuntimeError {
+        return Err(interpreter::InterpreterError {
             err: $msg.to_string(),
             line: $vm.line,
             col: $vm.col,
@@ -56,7 +40,7 @@ pub struct VirtualMachine {
 }
 
 impl VirtualMachine {
-    pub fn run(&mut self) -> Result<(), RuntimeError> {
+    pub fn run(&mut self) -> Result<(), interpreter::InterpreterError> {
         while self.ip < self.instructions.len() {
             match &self.instructions[self.ip] {
                 Opcode::Add => match self.stack.pop() {
