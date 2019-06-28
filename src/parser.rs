@@ -359,7 +359,7 @@ fn unary(ps: ParseState) -> ParseResult {
 }
 
 fn value(ps: ParseState) -> ParseResult {
-    or!(ps, boolean, number)
+    or!(ps, parenthesized_expression, boolean, number)
 }
 
 fn whitespace(ps: ParseState) -> ParseResult {
@@ -437,6 +437,27 @@ fn number(ps: ParseState) -> ParseResult {
     }
 }
 
+fn parenthesized_expression(ps: ParseState) -> ParseResult {
+    let mut lps = ps.clone();
+    if let Some('(') = lps.chars.next() {
+        match expression(lps) {
+            ParseResult::Matched(expr, mut ps) => {
+                if let Some(')') = ps.chars.next() {
+                    ParseResult::Matched(expr, ps)
+                } else {
+                    ParseResult::Error("Expected ).".to_string(), ps.line, ps.col)
+                }
+            }
+            ParseResult::NotMatched(ps) => {
+                ParseResult::Error("Expected expression.".to_string(), ps.line, ps.col)
+            }
+            ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
+        }
+    } else {
+        ParseResult::NotMatched(ps)
+    }
+}
+
 pub fn parse(src: &str) -> ParseResult {
     let mut ps = ParseState {
         chars: src.chars().peekable(),
@@ -498,6 +519,11 @@ mod tests {
         parse!(
             "2 * 3 != 1 - 2",
             "(!= (* 2:Integer 3:Integer) (- 1:Integer 2:Integer))"
+        );
+        parse!("1 / (2 + 5)", "(/ 1:Integer (+ 2:Integer 5:Integer))");
+        parse!(
+            "(1 < 2) == false",
+            "(== (< 1:Integer 2:Integer) false:Boolean)"
         );
     }
 }

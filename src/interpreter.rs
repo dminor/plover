@@ -350,5 +350,7 @@ mod tests {
         evalfails!("1 == true", "Type error: type mismatch.");
         evalfails!("1 != false", "Type error: type mismatch.");
         evalfails!("0 <= false", "Type error: expected integer.");
+        eval!("(1 + 2) * 5", Integer, 15);
+        eval!("1 + 2 * 5", Integer, 11);
     }
 }
