@@ -241,7 +241,36 @@ fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
             Err(err) => Err(err),
         },
         parser::AST::Boolean(_) => Ok(Type::Boolean),
-        parser::AST::Function(_, body) => typecheck(&body),
+        parser::AST::Function(param, body) => {
+            let err =
+                "Type error: function parameters should be identifier or tuple of identifiers."
+                    .to_string();
+            match &**param {
+                parser::AST::Identifier(_) => {}
+                parser::AST::Tuple(elements) => {
+                    for element in elements {
+                        match element {
+                            parser::AST::Identifier(_) => {}
+                            _ => {
+                                return Err(InterpreterError {
+                                    err: err,
+                                    line: usize::max_value(),
+                                    col: usize::max_value(),
+                                });
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    return Err(InterpreterError {
+                        err: err,
+                        line: usize::max_value(),
+                        col: usize::max_value(),
+                    });
+                }
+            }
+            typecheck(&body)
+        }
         parser::AST::Identifier(_) => Err(InterpreterError {
             err: "Type error: could not infer type for identifier.".to_string(),
             line: usize::max_value(),
@@ -598,5 +627,14 @@ mod tests {
             Value::Integer(1),
             Value::Integer(2)
         );
+        evalfails!(
+            "fn 1 is 5 end",
+            "Type error: function parameters should be identifier or tuple of identifiers."
+        );
+        evalfails!(
+            "fn (a, 1) is 5 end",
+            "Type error: function parameters should be identifier or tuple of identifiers."
+        );
+        typecheck!("fn (a, b) is 1 end", Type::Integer);
     }
 }

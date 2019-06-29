@@ -301,7 +301,7 @@ impl fmt::Display for Operator {
 pub enum AST {
     BinaryOp(Operator, Box<AST>, Box<AST>),
     Boolean(bool),
-    Function(Vec<String>, Box<AST>),
+    Function(Box<AST>, Box<AST>),
     Identifier(String),
     If(Vec<(AST, AST)>, Box<AST>),
     Integer(i64),
@@ -315,16 +315,7 @@ impl fmt::Display for AST {
         match self {
             AST::BinaryOp(op, lhs, rhs) => write!(f, "({} {} {})", op, lhs, rhs),
             AST::Boolean(b) => write!(f, "{}:Boolean", b),
-            AST::Function(params, body) => {
-                write!(f, "(fn (")?;
-                for i in 0..params.len() {
-                    write!(f, "{}", params[i])?;
-                    if i + 1 != params.len() {
-                        write!(f, " ")?;
-                    }
-                }
-                write!(f, ") ({}))", body)
-            }
+            AST::Function(param, body) => write!(f, "(fn {} {})", param, body),
             AST::Identifier(id) => write!(f, "{}:Identifier", id),
             AST::If(conds, els) => {
                 write!(f, "(if ")?;
@@ -557,62 +548,38 @@ fn boolean(ps: ParseState) -> ParseResult {
 
 fn function(ps: ParseState) -> ParseResult {
     let mut lps = ps.clone();
-    let mut params = Vec::new();
-    let body;
     if let Some(_) = expect!(lps, "fn") {
-        loop {
-            lps = skip!(lps, whitespace);
-            match identifier(lps) {
-                ParseResult::Matched(param, ps) => {
-                    lps = skip!(ps, whitespace);
-                    if let AST::Identifier(param) = param {
-                        if param == "is" {
-                            break;
-                        } else {
-                            params.push(param);
-                        }
-                    }
-                }
-                ParseResult::NotMatched(ps) => {
-                    return ParseResult::Error(
-                        "Expected identifier or is.".to_string(),
-                        ps.line,
-                        ps.col,
-                    );
-                }
-                ParseResult::Error(err, line, col) => {
-                    return ParseResult::Error(err, line, col);
-                }
-            }
-            match lps.chars.peek() {
-                None => {
-                    return ParseResult::Error(
-                        "Unexpected end of input.".to_string(),
-                        lps.line,
-                        lps.col,
-                    );
-                }
-                _ => {}
-            }
-        }
         lps = skip!(lps, whitespace);
-        match expression(lps) {
-            ParseResult::Matched(ast, ps) => {
-                lps = ps;
-                body = ast;
+        match value(lps) {
+            ParseResult::Matched(param, ps) => {
+                lps = skip!(ps, whitespace);
+                if let Some(_) = expect!(lps, "is") {
+                    match expression(lps) {
+                        ParseResult::Matched(body, ps) => {
+                            lps = ps;
+                            if let Some(_) = expect!(lps, "end") {
+                                ParseResult::Matched(
+                                    AST::Function(Box::new(param), Box::new(body)),
+                                    lps,
+                                )
+                            } else {
+                                ParseResult::Error("Expected end.".to_string(), lps.line, lps.col)
+                            }
+                        }
+                        ParseResult::NotMatched(ps) => {
+                            ParseResult::Error("Expected expression.".to_string(), ps.line, ps.col)
+                        }
+                        ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
+                    }
+                } else {
+                    ParseResult::Error("Expected is.".to_string(), lps.line, lps.col)
+                }
             }
             ParseResult::NotMatched(ps) => {
-                return ParseResult::Error("Expected expression.".to_string(), ps.line, ps.col);
+                ParseResult::Error("Expected value.".to_string(), ps.line, ps.col)
             }
-            ParseResult::Error(err, line, col) => {
-                return ParseResult::Error(err, line, col);
-            }
+            ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
         }
-        lps = skip!(lps, whitespace);
-        if let None = expect!(lps, "end") {
-            return ParseResult::Error("Expected end.".to_string(), lps.line, lps.col);
-        }
-        ParseResult::Matched(AST::Function(params, Box::new(body)), lps)
     } else {
         ParseResult::NotMatched(lps)
     }
@@ -844,11 +811,13 @@ mod tests {
         );
         parse!("x", "x:Identifier");
         parse!("x2", "x2:Identifier");
-        parse!("fn is 1 end", "(fn () (1:Integer))");
-        parse!("fn x is x + 1 end", "(fn (x) ((+ x:Identifier 1:Integer)))");
         parse!(
-            "fn x y is x + y end",
-            "(fn (x y) ((+ x:Identifier y:Identifier)))"
+            "fn x is x + 1 end",
+            "(fn x:Identifier (+ x:Identifier 1:Integer))"
+        );
+        parse!(
+            "fn (x, y) is x + y end",
+            "(fn (x:Identifier, y:Identifier):Tuple (+ x:Identifier y:Identifier))"
         );
         parse!("(1)", "1:Integer");
         parse!("(1,)", "(1:Integer):Tuple");
