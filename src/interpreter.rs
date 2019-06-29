@@ -100,6 +100,9 @@ fn generate(ast: &parser::AST, vm: &mut vm::VirtualMachine, instr: &mut Vec<vm::
         parser::AST::Boolean(b) => {
             instr.push(vm::Opcode::Bconst(*b));
         }
+        parser::AST::Function(_, _) => {
+            // TODO
+        }
         parser::AST::If(conds, els) => {
             let start_ip = instr.len();
             for cond in conds {
@@ -209,6 +212,7 @@ fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
             Err(err) => Err(err),
         },
         parser::AST::Boolean(_) => Ok(Type::Boolean),
+        parser::AST::Function(_, body) => typecheck(&body),
         parser::AST::Identifier(_) => Err(InterpreterError {
             err: "Type error: could not infer type for identifier.".to_string(),
             line: usize::max_value(),
