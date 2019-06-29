@@ -132,6 +132,9 @@ fn generate(ast: &parser::AST, vm: &mut vm::VirtualMachine, instr: &mut Vec<vm::
         parser::AST::Integer(i) => {
             instr.push(vm::Opcode::Iconst(*i));
         }
+        parser::AST::Tuple(_) => {
+            // TODO
+        }
         parser::AST::UnaryOp(op, ast) => {
             generate(ast, vm, instr);
             match op {
@@ -280,6 +283,11 @@ fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
             Ok(inferred_type)
         }
         parser::AST::Integer(_) => Ok(Type::Integer),
+        parser::AST::Tuple(_) => Err(InterpreterError {
+            err: "Type error: tuples not implemented yet.".to_string(),
+            line: usize::max_value(),
+            col: usize::max_value(),
+        }),
         parser::AST::UnaryOp(op, ast) => match typecheck(ast) {
             Ok(ast_type) => match op {
                 parser::Operator::Minus => {

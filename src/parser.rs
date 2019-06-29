@@ -305,6 +305,7 @@ pub enum AST {
     Identifier(String),
     If(Vec<(AST, AST)>, Box<AST>),
     Integer(i64),
+    Tuple(Vec<AST>),
     UnaryOp(Operator, Box<AST>),
     None,
 }
@@ -333,6 +334,16 @@ impl fmt::Display for AST {
                 write!(f, "(else {}))", els)
             }
             AST::Integer(n) => write!(f, "{}:Integer", n),
+            AST::Tuple(elements) => {
+                write!(f, "(")?;
+                for i in 0..elements.len() {
+                    write!(f, "{}", elements[i])?;
+                    if i + 1 != elements.len() {
+                        write!(f, ", ")?;
+                    }
+                }
+                write!(f, "):Tuple")
+            }
             AST::UnaryOp(op, ast) => write!(f, "({} {})", op, ast),
             AST::None => write!(f, "None"),
         }
@@ -497,11 +508,12 @@ fn unary(ps: ParseState) -> ParseResult {
 fn value(ps: ParseState) -> ParseResult {
     or!(
         ps,
-        parenthesized_expression,
         boolean,
-        integer,
         function,
-        identifier
+        tuple,
+        identifier,
+        integer,
+        parenthesized_expression
     )
 }
 
@@ -681,6 +693,60 @@ fn parenthesized_expression(ps: ParseState) -> ParseResult {
     }
 }
 
+fn tuple(ps: ParseState) -> ParseResult {
+    let mut lps = ps.clone();
+    let mut elements = Vec::new();
+    lps = skip!(lps, whitespace);
+    if let Some('(') = lps.chars.next() {
+        let mut has_comma = false;
+        loop {
+            lps = skip!(lps, whitespace);
+            // Allow for tuple with one element
+            if let Some(')') = lps.chars.peek() {
+                lps.chars.next();
+                break;
+            }
+            match expression(lps) {
+                ParseResult::Matched(element, ps) => {
+                    lps = skip!(ps, whitespace);
+                    elements.push(element);
+                }
+                ParseResult::NotMatched(ps) => {
+                    return ParseResult::Error("Expected expression.".to_string(), ps.line, ps.col);
+                }
+                ParseResult::Error(err, line, col) => {
+                    return ParseResult::Error(err, line, col);
+                }
+            }
+            match lps.chars.next() {
+                Some(',') => {
+                    has_comma = true;
+                }
+                Some(')') => {
+                    break;
+                }
+                None => {
+                    return ParseResult::Error(
+                        "Unexpected end of input.".to_string(),
+                        lps.line,
+                        lps.col,
+                    );
+                }
+                _ => {
+                    return ParseResult::Error("Expected , or ).".to_string(), lps.line, lps.col);
+                }
+            }
+        }
+        if has_comma {
+            ParseResult::Matched(AST::Tuple(elements), lps)
+        } else {
+            ParseResult::NotMatched(ps)
+        }
+    } else {
+        ParseResult::NotMatched(lps)
+    }
+}
+
 pub fn parse(src: &str) -> ParseResult {
     let mut ps = ParseState {
         chars: src.chars().peekable(),
@@ -783,6 +849,13 @@ mod tests {
         parse!(
             "fn x y is x + y end",
             "(fn (x y) ((+ x:Identifier y:Identifier)))"
+        );
+        parse!("(1)", "1:Integer");
+        parse!("(1,)", "(1:Integer):Tuple");
+        parse!("(1, 2, 3)", "(1:Integer, 2:Integer, 3:Integer):Tuple");
+        parse!(
+            "(1, 2, (2 + 3))",
+            "(1:Integer, 2:Integer, (+ 2:Integer 3:Integer)):Tuple"
         );
     }
 }
