@@ -31,6 +31,7 @@ pub enum Opcode {
     Or,
     Srcpos(usize, usize),
     Sub,
+    Tconst(usize),
 }
 
 impl fmt::Display for Opcode {
@@ -55,6 +56,7 @@ impl fmt::Display for Opcode {
             Opcode::Or => write!(f, "or"),
             Opcode::Srcpos(line, col) => write!(f, "srcpos {} {}", line, col),
             Opcode::Sub => write!(f, "sub"),
+            Opcode::Tconst(len) => write!(f, "tconst {}", len),
         }
     }
 }
@@ -226,6 +228,20 @@ impl VirtualMachine {
                     },
                     None => err!(self, "Stack underflow."),
                 },
+                Opcode::Tconst(len) => {
+                    let mut boxed: Box<Vec<i64>> = Box::new(Vec::new());
+                    for _ in 0..*len {
+                        match self.stack.pop() {
+                            Some(v) => {
+                                boxed.push(v);
+                            }
+                            None => err!(self, "Stack underflow."),
+                        }
+                    }
+                    boxed.reverse();
+                    let ptr = Box::into_raw(boxed);
+                    self.stack.push(ptr as i64);
+                }
             }
             self.ip += 1;
         }

@@ -7,6 +7,7 @@ use std::fmt;
 enum Type {
     Boolean,
     Integer,
+    Tuple(Vec<Type>),
 }
 
 impl fmt::Display for Type {
@@ -14,13 +15,25 @@ impl fmt::Display for Type {
         match self {
             Type::Boolean => write!(f, "boolean"),
             Type::Integer => write!(f, "integer"),
+            Type::Tuple(elements) => {
+                write!(f, "(")?;
+                for i in 0..elements.len() {
+                    write!(f, "{}", elements[i])?;
+                    if i + 1 != elements.len() {
+                        write!(f, ", ")?;
+                    }
+                }
+                write!(f, ")")
+            }
         }
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Value {
     Boolean(bool),
     Integer(i64),
+    Tuple(Vec<Value>),
 }
 
 impl fmt::Display for Value {
@@ -28,6 +41,16 @@ impl fmt::Display for Value {
         match self {
             Value::Boolean(b) => write!(f, "{}", b),
             Value::Integer(v) => write!(f, "{}", v),
+            Value::Tuple(elements) => {
+                write!(f, "(")?;
+                for i in 0..elements.len() {
+                    write!(f, "{}", elements[i])?;
+                    if i + 1 != elements.len() {
+                        write!(f, ", ")?;
+                    }
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -132,8 +155,11 @@ fn generate(ast: &parser::AST, vm: &mut vm::VirtualMachine, instr: &mut Vec<vm::
         parser::AST::Integer(i) => {
             instr.push(vm::Opcode::Iconst(*i));
         }
-        parser::AST::Tuple(_) => {
-            // TODO
+        parser::AST::Tuple(elements) => {
+            for element in elements {
+                generate(&element, vm, instr);
+            }
+            instr.push(vm::Opcode::Tconst(elements.len()));
         }
         parser::AST::UnaryOp(op, ast) => {
             generate(ast, vm, instr);
@@ -283,11 +309,20 @@ fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
             Ok(inferred_type)
         }
         parser::AST::Integer(_) => Ok(Type::Integer),
-        parser::AST::Tuple(_) => Err(InterpreterError {
-            err: "Type error: tuples not implemented yet.".to_string(),
-            line: usize::max_value(),
-            col: usize::max_value(),
-        }),
+        parser::AST::Tuple(elements) => {
+            let mut types = Vec::new();
+            for element in elements {
+                match typecheck(&element) {
+                    Ok(typ) => {
+                        types.push(typ);
+                    }
+                    Err(err) => {
+                        return Err(err);
+                    }
+                }
+            }
+            Ok(Type::Tuple(types))
+        }
         parser::AST::UnaryOp(op, ast) => match typecheck(ast) {
             Ok(ast_type) => match op {
                 parser::Operator::Minus => {
@@ -328,6 +363,24 @@ fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
     }
 }
 
+fn to_typed_value(typ: &Type, value: i64) -> Value {
+    match typ {
+        Type::Boolean => Value::Boolean(value != 0),
+        Type::Integer => Value::Integer(value),
+        Type::Tuple(types) => {
+            let mut values = Vec::new();
+            unsafe {
+                let boxed = Box::from_raw(value as *mut Vec<i64>);
+                for i in 0..types.len() {
+                    let v = to_typed_value(&types[i], boxed[i]);
+                    values.push(v);
+                }
+            }
+            Value::Tuple(values)
+        }
+    }
+}
+
 pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<Value, InterpreterError> {
     match typecheck(ast) {
         Ok(typ) => {
@@ -342,10 +395,7 @@ pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<Value, Int
             //}
             match vm.run() {
                 Ok(()) => match vm.stack.pop() {
-                    Some(v) => match typ {
-                        Type::Boolean => Ok(Value::Boolean(v != 0)),
-                        Type::Integer => Ok(Value::Integer(v)),
-                    },
+                    Some(value) => Ok(to_typed_value(&typ, value)),
                     None => Err(InterpreterError {
                         err: "Stack underflow.".to_string(),
                         line: usize::max_value(),
@@ -364,16 +414,48 @@ pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<Value, Int
 #[cfg(test)]
 mod tests {
     use crate::interpreter;
+    use crate::interpreter::Type;
+    use crate::interpreter::Value;
     use crate::parser;
     use crate::vm;
 
     macro_rules! eval {
+        ($input:expr, Tuple, $($value:expr),*) => {{
+            let mut vm = vm::VirtualMachine::new();
+            match parser::parse($input) {
+                parser::ParseResult::Matched(ast, _) => match interpreter::eval(&mut vm, &ast) {
+                    Ok(v) => match v {
+                        Value::Tuple(elements) => {
+                            let mut i = 0;
+                            $(
+                                assert!(i < elements.len());
+                                assert_eq!(elements[i], $value);
+                                i += 1;
+                                assert!(i != 0);  // Silence warning
+                            )*
+                        }
+                        _ => {
+                            assert!(false);
+                        }
+                    },
+                    Err(_) => {
+                        assert!(false);
+                    }
+                },
+                parser::ParseResult::NotMatched(_) => {
+                    assert!(false);
+                }
+                parser::ParseResult::Error(_, _, _) => {
+                    assert!(false);
+                }
+            }
+        }};
         ($input:expr, $type:tt, $value:expr) => {{
             let mut vm = vm::VirtualMachine::new();
             match parser::parse($input) {
                 parser::ParseResult::Matched(ast, _) => match interpreter::eval(&mut vm, &ast) {
                     Ok(v) => match v {
-                        interpreter::Value::$type(t) => {
+                        Value::$type(t) => {
                             assert_eq!(t, $value);
                         }
                         _ => {
@@ -455,12 +537,12 @@ mod tests {
         eval!("1 > 2", Boolean, false);
         eval!("2 >= 2", Boolean, true);
         eval!("5 * 4 * 3 * 2 * 1", Integer, 120);
-        typecheck!("5", interpreter::Type::Integer);
-        typecheck!("true", interpreter::Type::Boolean);
-        typecheck!("2 + 5 + 3", interpreter::Type::Integer);
-        typecheck!("true && false", interpreter::Type::Boolean);
-        typecheck!("!false", interpreter::Type::Boolean);
-        typecheck!("-1", interpreter::Type::Integer);
+        typecheck!("5", Type::Integer);
+        typecheck!("true", Type::Boolean);
+        typecheck!("2 + 5 + 3", Type::Integer);
+        typecheck!("true && false", Type::Boolean);
+        typecheck!("!false", Type::Boolean);
+        typecheck!("-1", Type::Integer);
         evalfails!("1 + true", "Type error: expected integer.");
         evalfails!("1 && true", "Type error: expected boolean.");
         evalfails!("!1", "Type error: expected boolean.");
@@ -472,7 +554,7 @@ mod tests {
         eval!("1 + 2 * 5", Integer, 11);
         evalfails!("1 / 0", "Division by zero.");
         evalfails!("1 % 0", "Division by zero.");
-        typecheck!("if true then 1 else 2 end", interpreter::Type::Integer);
+        typecheck!("if true then 1 else 2 end", Type::Integer);
         evalfails!(
             "if true then 1 else false end",
             "Type mismatch: expected integer found boolean."
@@ -496,6 +578,25 @@ mod tests {
             "if true then if false then 1 else 2 end else 3 end",
             Integer,
             2
+        );
+        typecheck!(
+            "(1, false)",
+            Type::Tuple(vec![Type::Integer, Type::Boolean])
+        );
+        eval!("(1,)", Tuple, Value::Integer(1));
+        eval!(
+            "(1, false)",
+            Tuple,
+            Value::Integer(1),
+            Value::Boolean(false)
+        );
+        eval!("(1, 1 + 2)", Tuple, Value::Integer(1), Value::Integer(3));
+        eval!(
+            "(1, 1, 2)",
+            Tuple,
+            Value::Integer(1),
+            Value::Integer(1),
+            Value::Integer(2)
         );
     }
 }
