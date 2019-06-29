@@ -123,6 +123,9 @@ fn generate(ast: &parser::AST, vm: &mut vm::VirtualMachine, instr: &mut Vec<vm::
                 }
             }
         }
+        parser::AST::Identifier(_) => {
+            // TODO
+        }
         parser::AST::Integer(i) => {
             instr.push(vm::Opcode::Iconst(*i));
         }
@@ -206,6 +209,11 @@ fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
             Err(err) => Err(err),
         },
         parser::AST::Boolean(_) => Ok(Type::Boolean),
+        parser::AST::Identifier(_) => Err(InterpreterError {
+            err: "Type error: could not infer type for identifier.".to_string(),
+            line: usize::max_value(),
+            col: usize::max_value(),
+        }),
         parser::AST::If(conds, els) => {
             let mut first = true;
             let mut inferred_type = Type::Boolean;

@@ -301,6 +301,7 @@ impl fmt::Display for Operator {
 pub enum AST {
     BinaryOp(Operator, Box<AST>, Box<AST>),
     Boolean(bool),
+    Identifier(String),
     If(Vec<(AST, AST)>, Box<AST>),
     Integer(i64),
     UnaryOp(Operator, Box<AST>),
@@ -312,6 +313,7 @@ impl fmt::Display for AST {
         match self {
             AST::BinaryOp(op, lhs, rhs) => write!(f, "({} {} {})", op, lhs, rhs),
             AST::Boolean(b) => write!(f, "{}:Boolean", b),
+            AST::Identifier(id) => write!(f, "{}:Identifier", id),
             AST::If(conds, els) => {
                 write!(f, "(if ")?;
                 for cond in conds {
@@ -482,7 +484,7 @@ fn unary(ps: ParseState) -> ParseResult {
 }
 
 fn value(ps: ParseState) -> ParseResult {
-    or!(ps, parenthesized_expression, boolean, number)
+    or!(ps, parenthesized_expression, boolean, number, identifier)
 }
 
 fn whitespace(ps: ParseState) -> ParseResult {
@@ -520,6 +522,36 @@ fn boolean(ps: ParseState) -> ParseResult {
             _ => unreachable!(),
         },
         None => ParseResult::NotMatched(lps),
+    }
+}
+
+fn identifier(ps: ParseState) -> ParseResult {
+    let mut lps = ps.clone();
+    let mut s = String::new();
+    let mut first = true;
+    loop {
+        match lps.chars.peek() {
+            Some(c) => {
+                if first && c.is_alphabetic() {
+                    first = false;
+                    s.push(*c);
+                    lps.chars.next();
+                } else if !first && c.is_alphanumeric() {
+                    s.push(*c);
+                    lps.chars.next();
+                } else {
+                    break;
+                }
+            }
+            _ => {
+                break;
+            }
+        }
+    }
+    if !s.is_empty() {
+        ParseResult::Matched(AST::Identifier(s), lps)
+    } else {
+        ParseResult::NotMatched(lps)
     }
 }
 
@@ -663,5 +695,7 @@ mod tests {
              end",
             "(if (cond true:Boolean (if (cond true:Boolean 1:Integer) (else 2:Integer))) (cond false:Boolean 3:Integer) (else 4:Integer))"
         );
+        parse!("x", "x:Identifier");
+        parse!("x2", "x2:Identifier");
     }
 }
