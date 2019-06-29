@@ -499,7 +499,7 @@ fn value(ps: ParseState) -> ParseResult {
         ps,
         parenthesized_expression,
         boolean,
-        number,
+        integer,
         function,
         identifier
     )
@@ -636,7 +636,7 @@ fn identifier(ps: ParseState) -> ParseResult {
     }
 }
 
-fn number(ps: ParseState) -> ParseResult {
+fn integer(ps: ParseState) -> ParseResult {
     let mut lps = ps.clone();
     let mut s = String::new();
     loop {
