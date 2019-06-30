@@ -392,6 +392,84 @@ fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
     }
 }
 
+fn type_from_operator(op: &parser::Operator) -> Option<Type> {
+    match op {
+        parser::Operator::And => Some(Type::Boolean),
+        parser::Operator::Divide => Some(Type::Integer),
+        parser::Operator::Equal => None,
+        parser::Operator::Greater => Some(Type::Integer),
+        parser::Operator::GreaterEqual => Some(Type::Integer),
+        parser::Operator::Less => Some(Type::Integer),
+        parser::Operator::LessEqual => Some(Type::Integer),
+        parser::Operator::Minus => Some(Type::Integer),
+        parser::Operator::Mod => Some(Type::Integer),
+        parser::Operator::Multiply => Some(Type::Integer),
+        parser::Operator::Not => Some(Type::Boolean),
+        parser::Operator::NotEqual => None,
+        parser::Operator::Or => Some(Type::Boolean),
+        parser::Operator::Plus => Some(Type::Integer),
+    }
+}
+
+fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
+    match ast {
+        parser::AST::BinaryOp(op, lhs, rhs) => {
+            if let parser::AST::Identifier(s) = &**lhs {
+                if s == id {
+                    match type_from_operator(op) {
+                        Some(typ) => return Some(typ),
+                        None => match &**rhs {
+                            parser::AST::BinaryOp(op, _, _) => {
+                                return type_from_operator(op);
+                            }
+                            parser::AST::UnaryOp(op, _) => {
+                                return type_from_operator(op);
+                            }
+                            _ => {
+                                return None;
+                            }
+                        },
+                    }
+                }
+            }
+            if let parser::AST::Identifier(s) = &**rhs {
+                if s == id {
+                    match type_from_operator(op) {
+                        Some(typ) => return Some(typ),
+                        None => match &**lhs {
+                            parser::AST::BinaryOp(op, _, _) => {
+                                return type_from_operator(op);
+                            }
+                            parser::AST::UnaryOp(op, _) => {
+                                return type_from_operator(op);
+                            }
+                            _ => {
+                                return None;
+                            }
+                        },
+                    }
+                }
+            }
+            match typeinfer(id, lhs) {
+                Some(typ) => Some(typ),
+                None => typeinfer(id, rhs),
+            }
+        }
+        parser::AST::UnaryOp(op, ast) => {
+            if let parser::AST::Identifier(s) = &**ast {
+                if s == id {
+                    type_from_operator(op)
+                } else {
+                    typeinfer(id, ast)
+                }
+            } else {
+                typeinfer(id, ast)
+            }
+        }
+        _ => None,
+    }
+}
+
 fn to_typed_value(typ: &Type, value: i64) -> Value {
     match typ {
         Type::Boolean => Value::Boolean(value != 0),
@@ -548,6 +626,27 @@ mod tests {
         }};
     }
 
+    macro_rules! typeinfer {
+        ($input:expr, $id:expr, $value:expr) => {{
+            match parser::parse($input) {
+                parser::ParseResult::Matched(ast, _) => match interpreter::typeinfer($id, &ast) {
+                    Some(typ) => {
+                        assert_eq!(typ, $value);
+                    }
+                    None => {
+                        assert!(false);
+                    }
+                },
+                parser::ParseResult::NotMatched(_) => {
+                    assert!(false);
+                }
+                parser::ParseResult::Error(_, _, _) => {
+                    assert!(false);
+                }
+            }
+        }};
+    }
+
     #[test]
     fn evals() {
         eval!("1 + 2", Integer, 3);
@@ -636,5 +735,25 @@ mod tests {
             "Type error: function parameters should be identifier or tuple of identifiers."
         );
         typecheck!("fn (a, b) is 1 end", Type::Integer);
+        typeinfer!("-a", "a", Type::Integer);
+        typeinfer!("!a", "a", Type::Boolean);
+        typeinfer!("a + 1", "a", Type::Integer);
+        typeinfer!("a - 1", "a", Type::Integer);
+        typeinfer!("a * 1", "a", Type::Integer);
+        typeinfer!("a / 1", "a", Type::Integer);
+        typeinfer!("2 % a", "a", Type::Integer);
+        typeinfer!("1 < a", "a", Type::Integer);
+        typeinfer!("1 <= a", "a", Type::Integer);
+        typeinfer!("1 + 2 <= a", "a", Type::Integer);
+        typeinfer!("a + 1 <= b", "a", Type::Integer);
+        typeinfer!("a + b", "a", Type::Integer);
+        typeinfer!("a + b", "b", Type::Integer);
+        typeinfer!("a + b < c", "a", Type::Integer);
+        typeinfer!("a + b < c", "b", Type::Integer);
+        typeinfer!("a + b < c", "c", Type::Integer);
+        typeinfer!("a + b == c", "a", Type::Integer);
+        typeinfer!("a + b == c", "b", Type::Integer);
+        typeinfer!("a + b == c", "c", Type::Integer);
+        typeinfer!("a == -b", "a", Type::Integer);
     }
 }
