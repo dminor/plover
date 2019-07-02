@@ -1,11 +1,13 @@
 use crate::parser;
 use crate::vm;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Type {
     Boolean,
+    Function(Box<Type>, Box<Type>),
     Integer,
     Tuple(Vec<Type>),
 }
@@ -14,6 +16,7 @@ impl fmt::Display for Type {
     fn fmt<'a>(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Type::Boolean => write!(f, "boolean"),
+            Type::Function(param, body) => write!(f, "{} -> {}", param, body),
             Type::Integer => write!(f, "integer"),
             Type::Tuple(elements) => {
                 write!(f, "(")?;
@@ -32,6 +35,7 @@ impl fmt::Display for Type {
 #[derive(Debug, PartialEq)]
 pub enum Value {
     Boolean(bool),
+    Function,
     Integer(i64),
     Tuple(Vec<Value>),
 }
@@ -40,6 +44,7 @@ impl fmt::Display for Value {
     fn fmt<'a>(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Value::Boolean(b) => write!(f, "{}", b),
+            Value::Function => write!(f, "(lambda)"),
             Value::Integer(v) => write!(f, "{}", v),
             Value::Tuple(elements) => {
                 write!(f, "(")?;
@@ -178,10 +183,10 @@ fn generate(ast: &parser::AST, vm: &mut vm::VirtualMachine, instr: &mut Vec<vm::
     }
 }
 
-fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
+fn typecheck(ast: &parser::AST, ids: &HashMap<String, Type>) -> Result<Type, InterpreterError> {
     match ast {
-        parser::AST::BinaryOp(op, lhs, rhs) => match typecheck(rhs) {
-            Ok(rhs_type) => match typecheck(lhs) {
+        parser::AST::BinaryOp(op, lhs, rhs) => match typecheck(rhs, ids) {
+            Ok(rhs_type) => match typecheck(lhs, ids) {
                 Ok(lhs_type) => match op {
                     parser::Operator::Divide
                     | parser::Operator::Minus
@@ -245,12 +250,17 @@ fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
             let err =
                 "Type error: function parameters should be identifier or tuple of identifiers."
                     .to_string();
+            let mut params = Vec::new();
             match &**param {
-                parser::AST::Identifier(_) => {}
+                parser::AST::Identifier(p) => {
+                    params.push(p);
+                }
                 parser::AST::Tuple(elements) => {
                     for element in elements {
                         match element {
-                            parser::AST::Identifier(_) => {}
+                            parser::AST::Identifier(p) => {
+                                params.push(p);
+                            }
                             _ => {
                                 return Err(InterpreterError {
                                     err: err,
@@ -269,18 +279,50 @@ fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
                     });
                 }
             }
-            typecheck(&body)
+            let mut ids = ids.clone();
+            let mut types = Vec::new();
+            for param in params {
+                match typeinfer(param, body) {
+                    Some(typ) => {
+                        types.push(typ.clone());
+                        ids.insert(param.to_string(), typ);
+                    }
+                    None => {
+                        let mut err = "Type error: could not infer type for: ".to_string();
+                        err.push_str(param);
+                        err.push('.');
+                        return Err(InterpreterError {
+                            err: err,
+                            line: usize::max_value(),
+                            col: usize::max_value(),
+                        });
+                    }
+                }
+            }
+            match typecheck(&body, &ids) {
+                Ok(typ) => {
+                    if types.len() > 1 {
+                        Ok(Type::Function(Box::new(Type::Tuple(types)), Box::new(typ)))
+                    } else {
+                        Ok(Type::Function(Box::new(types[0].clone()), Box::new(typ)))
+                    }
+                }
+                Err(err) => Err(err),
+            }
         }
-        parser::AST::Identifier(_) => Err(InterpreterError {
-            err: "Type error: could not infer type for identifier.".to_string(),
-            line: usize::max_value(),
-            col: usize::max_value(),
-        }),
+        parser::AST::Identifier(s) => match ids.get(s) {
+            Some(typ) => Ok(typ.clone()),
+            None => Err(InterpreterError {
+                err: "Type error: could not infer type for identifier.".to_string(),
+                line: usize::max_value(),
+                col: usize::max_value(),
+            }),
+        },
         parser::AST::If(conds, els) => {
             let mut first = true;
             let mut inferred_type = Type::Boolean;
             for cond in conds {
-                match typecheck(&cond.0) {
+                match typecheck(&cond.0, ids) {
                     Ok(Type::Boolean) => {}
                     Err(err) => {
                         return Err(err);
@@ -293,7 +335,7 @@ fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
                         });
                     }
                 }
-                match typecheck(&cond.1) {
+                match typecheck(&cond.1, ids) {
                     Ok(t) => {
                         if first {
                             first = false;
@@ -316,7 +358,7 @@ fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
                     }
                 }
             }
-            match typecheck(&els) {
+            match typecheck(&els, ids) {
                 Ok(t) => {
                     if inferred_type != t {
                         let mut err = "Type mismatch: expected ".to_string();
@@ -341,7 +383,7 @@ fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
         parser::AST::Tuple(elements) => {
             let mut types = Vec::new();
             for element in elements {
-                match typecheck(&element) {
+                match typecheck(&element, ids) {
                     Ok(typ) => {
                         types.push(typ);
                     }
@@ -352,7 +394,7 @@ fn typecheck(ast: &parser::AST) -> Result<Type, InterpreterError> {
             }
             Ok(Type::Tuple(types))
         }
-        parser::AST::UnaryOp(op, ast) => match typecheck(ast) {
+        parser::AST::UnaryOp(op, ast) => match typecheck(ast, ids) {
             Ok(ast_type) => match op {
                 parser::Operator::Minus => {
                     if ast_type == Type::Integer {
@@ -455,6 +497,16 @@ fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
                 None => typeinfer(id, rhs),
             }
         }
+        parser::AST::Function(_, body) => typeinfer(id, body),
+        parser::AST::Tuple(elements) => {
+            for element in elements {
+                match typeinfer(id, element) {
+                    Some(typ) => return Some(typ),
+                    None => {}
+                }
+            }
+            None
+        }
         parser::AST::UnaryOp(op, ast) => {
             if let parser::AST::Identifier(s) = &**ast {
                 if s == id {
@@ -473,6 +525,7 @@ fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
 fn to_typed_value(typ: &Type, value: i64) -> Value {
     match typ {
         Type::Boolean => Value::Boolean(value != 0),
+        Type::Function(_, _) => Value::Function,
         Type::Integer => Value::Integer(value),
         Type::Tuple(types) => {
             let mut values = Vec::new();
@@ -489,7 +542,7 @@ fn to_typed_value(typ: &Type, value: i64) -> Value {
 }
 
 pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<Value, InterpreterError> {
-    match typecheck(ast) {
+    match typecheck(ast, &HashMap::new()) {
         Ok(typ) => {
             let mut instr = Vec::new();
             generate(ast, vm, &mut instr);
@@ -525,6 +578,7 @@ mod tests {
     use crate::interpreter::Value;
     use crate::parser;
     use crate::vm;
+    use std::collections::HashMap;
 
     macro_rules! eval {
         ($input:expr, Tuple, $($value:expr),*) => {{
@@ -607,10 +661,11 @@ mod tests {
 
     macro_rules! typecheck {
         ($input:expr, $value:expr) => {{
+            let ids = HashMap::new();
             match parser::parse($input) {
-                parser::ParseResult::Matched(ast, _) => match interpreter::typecheck(&ast) {
+                parser::ParseResult::Matched(ast, _) => match interpreter::typecheck(&ast, &ids) {
                     Ok(typ) => {
-                        assert_eq!(typ, $value);
+                        assert_eq!(typ.to_string(), $value);
                     }
                     Err(_) => {
                         assert!(false);
@@ -665,12 +720,12 @@ mod tests {
         eval!("1 > 2", Boolean, false);
         eval!("2 >= 2", Boolean, true);
         eval!("5 * 4 * 3 * 2 * 1", Integer, 120);
-        typecheck!("5", Type::Integer);
-        typecheck!("true", Type::Boolean);
-        typecheck!("2 + 5 + 3", Type::Integer);
-        typecheck!("true && false", Type::Boolean);
-        typecheck!("!false", Type::Boolean);
-        typecheck!("-1", Type::Integer);
+        typecheck!("5", "integer");
+        typecheck!("true", "boolean");
+        typecheck!("2 + 5 + 3", "integer");
+        typecheck!("true && false", "boolean");
+        typecheck!("!false", "boolean");
+        typecheck!("-1", "integer");
         evalfails!("1 + true", "Type error: expected integer.");
         evalfails!("1 && true", "Type error: expected boolean.");
         evalfails!("!1", "Type error: expected boolean.");
@@ -682,7 +737,7 @@ mod tests {
         eval!("1 + 2 * 5", Integer, 11);
         evalfails!("1 / 0", "Division by zero.");
         evalfails!("1 % 0", "Division by zero.");
-        typecheck!("if true then 1 else 2 end", Type::Integer);
+        typecheck!("if true then 1 else 2 end", "integer");
         evalfails!(
             "if true then 1 else false end",
             "Type mismatch: expected integer found boolean."
@@ -707,10 +762,7 @@ mod tests {
             Integer,
             2
         );
-        typecheck!(
-            "(1, false)",
-            Type::Tuple(vec![Type::Integer, Type::Boolean])
-        );
+        typecheck!("(1, false)", "(integer, boolean)");
         eval!("(1,)", Tuple, Value::Integer(1));
         eval!(
             "(1, false)",
@@ -734,7 +786,6 @@ mod tests {
             "fn (a, 1) is 5 end",
             "Type error: function parameters should be identifier or tuple of identifiers."
         );
-        typecheck!("fn (a, b) is 1 end", Type::Integer);
         typeinfer!("-a", "a", Type::Integer);
         typeinfer!("!a", "a", Type::Boolean);
         typeinfer!("a + 1", "a", Type::Integer);
@@ -755,5 +806,14 @@ mod tests {
         typeinfer!("a + b == c", "b", Type::Integer);
         typeinfer!("a + b == c", "c", Type::Integer);
         typeinfer!("a == -b", "a", Type::Integer);
+        typecheck!("fn x is x + 1 end", "integer -> integer");
+        typecheck!("fn (x, y) is x + y end", "(integer, integer) -> integer");
+        typecheck!("fn x is (x, x + 1) end", "integer -> (integer, integer)");
+        typecheck!("fn x is !x end", "boolean -> boolean");
+        typecheck!("fn (x, y) is x < y end", "(integer, integer) -> boolean");
+        typecheck!(
+            "fn x is fn y is x + y end end",
+            "integer -> integer -> integer"
+        );
     }
 }
