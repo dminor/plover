@@ -88,6 +88,30 @@ macro_rules! addition_operator {
     }};
 }
 
+macro_rules! arrow {
+    ($ps:expr) => {{
+        match $ps.chars.peek() {
+            Some(c) => match c {
+                '-' => {
+                    $ps.chars.next();
+                    match $ps.chars.next() {
+                        Some('>') => true,
+                        _ => {
+                            return ParseResult::Error(
+                                "Expected >.".to_string(),
+                                $ps.line,
+                                $ps.col,
+                            );
+                        }
+                    }
+                }
+                _ => false,
+            },
+            None => false,
+        }
+    }};
+}
+
 macro_rules! comparison_operator {
     ($ps:expr) => {{
         match $ps.chars.peek() {
@@ -553,7 +577,7 @@ fn function(ps: ParseState) -> ParseResult {
         match value(lps) {
             ParseResult::Matched(param, ps) => {
                 lps = skip!(ps, whitespace);
-                if let Some(_) = expect!(lps, "is") {
+                if arrow!(lps) {
                     match expression(lps) {
                         ParseResult::Matched(body, ps) => {
                             lps = ps;
@@ -812,11 +836,11 @@ mod tests {
         parse!("x", "x:Identifier");
         parse!("x2", "x2:Identifier");
         parse!(
-            "fn x is x + 1 end",
+            "fn x -> x + 1 end",
             "(fn x:Identifier (+ x:Identifier 1:Integer))"
         );
         parse!(
-            "fn (x, y) is x + y end",
+            "fn (x, y) -> x + y end",
             "(fn (x:Identifier, y:Identifier):Tuple (+ x:Identifier y:Identifier))"
         );
         parse!("(1)", "1:Integer");

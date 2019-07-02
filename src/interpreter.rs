@@ -779,11 +779,11 @@ mod tests {
             Value::Integer(2)
         );
         evalfails!(
-            "fn 1 is 5 end",
+            "fn 1 -> 5 end",
             "Type error: function parameters should be identifier or tuple of identifiers."
         );
         evalfails!(
-            "fn (a, 1) is 5 end",
+            "fn (a, 1) -> 5 end",
             "Type error: function parameters should be identifier or tuple of identifiers."
         );
         typeinfer!("-a", "a", Type::Integer);
@@ -806,13 +806,13 @@ mod tests {
         typeinfer!("a + b == c", "b", Type::Integer);
         typeinfer!("a + b == c", "c", Type::Integer);
         typeinfer!("a == -b", "a", Type::Integer);
-        typecheck!("fn x is x + 1 end", "integer -> integer");
-        typecheck!("fn (x, y) is x + y end", "(integer, integer) -> integer");
-        typecheck!("fn x is (x, x + 1) end", "integer -> (integer, integer)");
-        typecheck!("fn x is ~x end", "boolean -> boolean");
-        typecheck!("fn (x, y) is x < y end", "(integer, integer) -> boolean");
+        typecheck!("fn x -> x + 1 end", "integer -> integer");
+        typecheck!("fn (x, y) -> x + y end", "(integer, integer) -> integer");
+        typecheck!("fn x -> (x, x + 1) end", "integer -> (integer, integer)");
+        typecheck!("fn x -> ~x end", "boolean -> boolean");
+        typecheck!("fn (x, y) -> x < y end", "(integer, integer) -> boolean");
         typecheck!(
-            "fn x is fn y is x + y end end",
+            "fn x -> fn y -> x + y end end",
             "integer -> integer -> integer"
         );
     }
