@@ -7,11 +7,11 @@ conditional    -> "if" equality "then" expression
                   ("elsif" equality "then" expression)*
                   "else" expression "end"
                   | equality
-equality       -> comparison ( ( "!=" | "==" ) comparison )*
+equality       -> comparison ( ( "~=" | "==" ) comparison )*
 comparison     -> addition ( ( ">" | ">=" | "<" | "<=" ) addition )*
 addition       -> multiplication ( ( "+" | "-" | "or" ) multiplication )*
 multiplication -> unary ( ( "/" | "*" | "|" | "mod" | "and" ) unary )*
-unary          -> ( "!" | "-" ) unary | call
+unary          -> ( "~" | "-" ) unary | call
 call           -> value ( "(" ( value ,? )* ")" )?
 value          -> IDENTIFIER | INTEGER | STRING | "false" | "true"
                   | "(" expression ")" | "[" ( expression )* "]"
@@ -127,7 +127,7 @@ macro_rules! equality_operator {
     ($ps:expr) => {{
         match $ps.chars.peek() {
             Some(c) => match c {
-                '!' => {
+                '~' => {
                     $ps.chars.next();
                     match $ps.chars.next() {
                         Some('=') => Operator::NotEqual,
@@ -290,8 +290,8 @@ impl fmt::Display for Operator {
             Operator::Minus => write!(f, "-"),
             Operator::Multiply => write!(f, "*"),
             Operator::Mod => write!(f, "%"),
-            Operator::Not => write!(f, "!"),
-            Operator::NotEqual => write!(f, "!="),
+            Operator::Not => write!(f, "~"),
+            Operator::NotEqual => write!(f, "~="),
             Operator::Or => write!(f, "||"),
             Operator::Plus => write!(f, "+"),
         }
@@ -466,7 +466,7 @@ fn unary(ps: ParseState) -> ParseResult {
     lps = skip!(lps, whitespace);
     match lps.chars.peek() {
         Some(c) => match c {
-            '!' => {
+            '~' => {
                 lps.chars.next();
                 match value(lps) {
                     ParseResult::Matched(ast, ps) => {
@@ -762,19 +762,19 @@ mod tests {
         parse!("1 < 2", "(< 1:Integer 2:Integer)");
         parse!("1 <= 2", "(<= 1:Integer 2:Integer)");
         parse!("1 == 2", "(== 1:Integer 2:Integer)");
-        parse!("1 != 2", "(!= 1:Integer 2:Integer)");
+        parse!("1 ~= 2", "(~= 1:Integer 2:Integer)");
         parse!("1 >= 2", "(>= 1:Integer 2:Integer)");
         parse!("1 > 2", "(> 1:Integer 2:Integer)");
         parse!("1 > 2 * 4", "(> 1:Integer (* 2:Integer 4:Integer))");
-        parse!("!true || false", "(|| (! true:Boolean) false:Boolean)");
+        parse!("~true || false", "(|| (~ true:Boolean) false:Boolean)");
         parse!("-42", "(- 42:Integer)");
         parse!(
             "2 < 3 == 3 < 4",
             "(== (< 2:Integer 3:Integer) (< 3:Integer 4:Integer))"
         );
         parse!(
-            "2 * 3 != 1 - 2",
-            "(!= (* 2:Integer 3:Integer) (- 1:Integer 2:Integer))"
+            "2 * 3 ~= 1 - 2",
+            "(~= (* 2:Integer 3:Integer) (- 1:Integer 2:Integer))"
         );
         parse!("1 / (2 + 5)", "(/ 1:Integer (+ 2:Integer 5:Integer))");
         parse!(

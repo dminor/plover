@@ -711,12 +711,12 @@ mod tests {
         eval!("true && false", Boolean, false);
         eval!("true || false", Boolean, true);
         eval!("21 % 6", Integer, 3);
-        eval!("!true", Boolean, false);
+        eval!("~true", Boolean, false);
         eval!("-42", Integer, -42);
         eval!("1 < 2", Boolean, true);
         eval!("2 <= 2", Boolean, true);
         eval!("2 == 2", Boolean, true);
-        eval!("2 != 2", Boolean, false);
+        eval!("2 ~= 2", Boolean, false);
         eval!("1 > 2", Boolean, false);
         eval!("2 >= 2", Boolean, true);
         eval!("5 * 4 * 3 * 2 * 1", Integer, 120);
@@ -724,14 +724,14 @@ mod tests {
         typecheck!("true", "boolean");
         typecheck!("2 + 5 + 3", "integer");
         typecheck!("true && false", "boolean");
-        typecheck!("!false", "boolean");
+        typecheck!("~false", "boolean");
         typecheck!("-1", "integer");
         evalfails!("1 + true", "Type error: expected integer.");
         evalfails!("1 && true", "Type error: expected boolean.");
-        evalfails!("!1", "Type error: expected boolean.");
+        evalfails!("~1", "Type error: expected boolean.");
         evalfails!("-false", "Type error: expected integer.");
         evalfails!("1 == true", "Type error: type mismatch.");
-        evalfails!("1 != false", "Type error: type mismatch.");
+        evalfails!("1 ~= false", "Type error: type mismatch.");
         evalfails!("0 <= false", "Type error: expected integer.");
         eval!("(1 + 2) * 5", Integer, 15);
         eval!("1 + 2 * 5", Integer, 11);
@@ -787,7 +787,7 @@ mod tests {
             "Type error: function parameters should be identifier or tuple of identifiers."
         );
         typeinfer!("-a", "a", Type::Integer);
-        typeinfer!("!a", "a", Type::Boolean);
+        typeinfer!("~a", "a", Type::Boolean);
         typeinfer!("a + 1", "a", Type::Integer);
         typeinfer!("a - 1", "a", Type::Integer);
         typeinfer!("a * 1", "a", Type::Integer);
@@ -809,7 +809,7 @@ mod tests {
         typecheck!("fn x is x + 1 end", "integer -> integer");
         typecheck!("fn (x, y) is x + y end", "(integer, integer) -> integer");
         typecheck!("fn x is (x, x + 1) end", "integer -> (integer, integer)");
-        typecheck!("fn x is !x end", "boolean -> boolean");
+        typecheck!("fn x is ~x end", "boolean -> boolean");
         typecheck!("fn (x, y) is x < y end", "(integer, integer) -> boolean");
         typecheck!(
             "fn x is fn y is x + y end end",
