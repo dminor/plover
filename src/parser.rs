@@ -12,10 +12,10 @@ comparison     -> addition ( ( ">" | ">=" | "<" | "<=" ) addition )*
 addition       -> multiplication ( ( "+" | "-" | "or" ) multiplication )*
 multiplication -> unary ( ( "/" | "*" | "|" | "mod" | "and" ) unary )*
 unary          -> ( "~" | "-" ) unary | call
-call           -> value ( "(" ( value ,? )* ")" )?
+call           -> value value | value
 value          -> IDENTIFIER | INTEGER | STRING | "false" | "true"
                   | "(" expression ")" | "[" ( expression )* "]"
-                  | "fn" ( IDENTIFIER ,? )* is expression end
+                  | "fn" ( IDENTIFIER ,? )* -> expression end
 */
 
 macro_rules! binary_op {
@@ -325,6 +325,7 @@ impl fmt::Display for Operator {
 pub enum AST {
     BinaryOp(Operator, Box<AST>, Box<AST>),
     Boolean(bool),
+    Call(Box<AST>, Box<AST>),
     Function(Box<AST>, Box<AST>),
     Identifier(String),
     If(Vec<(AST, AST)>, Box<AST>),
@@ -339,6 +340,7 @@ impl fmt::Display for AST {
         match self {
             AST::BinaryOp(op, lhs, rhs) => write!(f, "({} {} {})", op, lhs, rhs),
             AST::Boolean(b) => write!(f, "{}:Boolean", b),
+            AST::Call(fun, args) => write!(f, "(apply {} {})", fun, args),
             AST::Function(param, body) => write!(f, "(fn {} {})", param, body),
             AST::Identifier(id) => write!(f, "{}:Identifier", id),
             AST::If(conds, els) => {
@@ -514,9 +516,31 @@ fn unary(ps: ParseState) -> ParseResult {
                     ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
                 }
             }
-            _ => value(lps),
+            _ => call(lps),
         },
         None => ParseResult::Error("Unexpected end of input.".to_string(), ps.line, ps.col),
+    }
+}
+
+fn call(ps: ParseState) -> ParseResult {
+    let mut lps = ps.clone();
+    lps = skip!(lps, whitespace);
+
+    match value(lps) {
+        ParseResult::Matched(fun, ps) => {
+            lps = skip!(ps, whitespace);
+            match value(lps) {
+                ParseResult::Matched(args, ps) => {
+                    ParseResult::Matched(AST::Call(Box::new(fun), Box::new(args)), ps)
+                }
+                ParseResult::NotMatched(ps) => ParseResult::Matched(fun, ps),
+                ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
+            }
+        }
+        ParseResult::NotMatched(ps) => {
+            ParseResult::Error("Expected value.".to_string(), ps.line, ps.col)
+        }
+        ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
     }
 }
 
@@ -633,7 +657,10 @@ fn identifier(ps: ParseState) -> ParseResult {
         }
     }
     if !s.is_empty() {
-        ParseResult::Matched(AST::Identifier(s), lps)
+        match &s[..] {
+            "if" | "else" | "elsif" | "end" | "fn" | "then" => ParseResult::NotMatched(lps),
+            _ => ParseResult::Matched(AST::Identifier(s), lps),
+        }
     } else {
         ParseResult::NotMatched(lps)
     }
@@ -849,6 +876,10 @@ mod tests {
         parse!(
             "(1, 2, (2 + 3))",
             "(1:Integer, 2:Integer, (+ 2:Integer 3:Integer)):Tuple"
+        );
+        parse!(
+            "fn x -> x + 1 end 1",
+            "(apply (fn x:Identifier (+ x:Identifier 1:Integer)) 1:Integer)"
         );
     }
 }

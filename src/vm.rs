@@ -14,9 +14,12 @@ macro_rules! err {
 pub enum Opcode {
     Add,
     And,
+    Arg(usize),
     Bconst(bool),
+    Call,
     Div,
     Equal,
+    Fconst(usize),
     Greater,
     GreaterEqual,
     Iconst(i64),
@@ -29,9 +32,16 @@ pub enum Opcode {
     Not,
     NotEqual,
     Or,
+    Pop,
+    Ret,
     Srcpos(usize, usize),
     Sub,
+    Swap,
     Tconst(usize),
+}
+
+pub struct Function {
+    ip: usize,
 }
 
 impl fmt::Display for Opcode {
@@ -39,9 +49,12 @@ impl fmt::Display for Opcode {
         match self {
             Opcode::Add => write!(f, "add"),
             Opcode::And => write!(f, "and"),
+            Opcode::Arg(n) => write!(f, "arg {}", n),
             Opcode::Bconst(b) => write!(f, "const {}", b),
+            Opcode::Call => write!(f, "call"),
             Opcode::Div => write!(f, "div"),
             Opcode::Equal => write!(f, "eq"),
+            Opcode::Fconst(ip) => write!(f, "lambda @{}", ip),
             Opcode::Greater => write!(f, "gt"),
             Opcode::GreaterEqual => write!(f, "ge"),
             Opcode::Iconst(i) => write!(f, "const {}", i),
@@ -54,8 +67,11 @@ impl fmt::Display for Opcode {
             Opcode::Not => write!(f, "not"),
             Opcode::NotEqual => write!(f, "neq"),
             Opcode::Or => write!(f, "or"),
+            Opcode::Pop => write!(f, "pop"),
+            Opcode::Ret => write!(f, "ret"),
             Opcode::Srcpos(line, col) => write!(f, "srcpos {} {}", line, col),
             Opcode::Sub => write!(f, "sub"),
+            Opcode::Swap => write!(f, "swap"),
             Opcode::Tconst(len) => write!(f, "tconst {}", len),
         }
     }
@@ -65,6 +81,7 @@ pub struct VirtualMachine {
     pub instructions: Vec<Opcode>,
     pub ip: usize,
     pub stack: Vec<i64>,
+    pub callstack: Vec<(Function, usize, usize)>,
 
     pub line: usize,
     pub col: usize,
@@ -93,9 +110,26 @@ impl VirtualMachine {
                     },
                     None => err!(self, "Stack underflow."),
                 },
+                Opcode::Arg(_) => match self.callstack.last() {
+                    Some((_, sp, _)) => {
+                        // TODO: this alway retrieves the last argument
+                        self.stack.push(self.stack[*sp]);
+                    }
+                    None => err!(self, "Call stack underflow."),
+                },
                 Opcode::Bconst(b) => {
                     self.stack.push(*b as i64);
                 }
+                Opcode::Call => match self.stack.pop() {
+                    Some(fun) => unsafe {
+                        let boxed = Box::from_raw(fun as *mut Function);
+                        let ip = self.ip;
+                        self.ip = boxed.ip;
+                        self.callstack.push((*boxed, self.stack.len() - 1, ip));
+                        continue;
+                    },
+                    None => err!(self, "Stack underflow."),
+                },
                 Opcode::Div => match self.stack.pop() {
                     Some(x) => match self.stack.pop() {
                         Some(y) => {
@@ -117,6 +151,12 @@ impl VirtualMachine {
                     },
                     None => err!(self, "Stack underflow."),
                 },
+                Opcode::Fconst(ip) => {
+                    let fun = Function { ip: *ip };
+                    let boxed: Box<Function> = Box::new(fun);
+                    let ptr = Box::into_raw(boxed);
+                    self.stack.push(ptr as i64);
+                }
                 Opcode::Greater => match self.stack.pop() {
                     Some(x) => match self.stack.pop() {
                         Some(y) => {
@@ -215,6 +255,16 @@ impl VirtualMachine {
                     },
                     None => err!(self, "Stack underflow."),
                 },
+                Opcode::Pop => match self.stack.pop() {
+                    Some(_) => {}
+                    None => err!(self, "Stack underflow."),
+                },
+                Opcode::Ret => match self.callstack.pop() {
+                    Some((_, _, ip)) => {
+                        self.ip = ip;
+                    }
+                    None => err!(self, "Call stack underflow."),
+                },
                 Opcode::Srcpos(line, col) => {
                     self.line = *line;
                     self.col = *col;
@@ -223,6 +273,16 @@ impl VirtualMachine {
                     Some(x) => match self.stack.pop() {
                         Some(y) => {
                             self.stack.push(x - y);
+                        }
+                        None => err!(self, "Stack underflow."),
+                    },
+                    None => err!(self, "Stack underflow."),
+                },
+                Opcode::Swap => match self.stack.pop() {
+                    Some(x) => match self.stack.pop() {
+                        Some(y) => {
+                            self.stack.push(x);
+                            self.stack.push(y);
                         }
                         None => err!(self, "Stack underflow."),
                     },
@@ -253,6 +313,7 @@ impl VirtualMachine {
             instructions: Vec::new(),
             ip: 0,
             stack: Vec::new(),
+            callstack: Vec::new(),
             line: usize::max_value(),
             col: usize::max_value(),
         }

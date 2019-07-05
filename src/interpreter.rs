@@ -128,8 +128,20 @@ fn generate(ast: &parser::AST, vm: &mut vm::VirtualMachine, instr: &mut Vec<vm::
         parser::AST::Boolean(b) => {
             instr.push(vm::Opcode::Bconst(*b));
         }
-        parser::AST::Function(_, _) => {
-            // TODO
+        parser::AST::Call(fun, args) => {
+            generate(args, vm, instr);
+            generate(fun, vm, instr);
+            instr.push(vm::Opcode::Call);
+        }
+        parser::AST::Function(_, body) => {
+            let mut fn_instr = Vec::new();
+            generate(body, vm, &mut fn_instr);
+            fn_instr.push(vm::Opcode::Swap);
+            fn_instr.push(vm::Opcode::Pop);
+            fn_instr.push(vm::Opcode::Ret);
+            let ip = vm.instructions.len();
+            vm.instructions.extend(fn_instr);
+            instr.push(vm::Opcode::Fconst(ip));
         }
         parser::AST::If(conds, els) => {
             let start_ip = instr.len();
@@ -155,7 +167,8 @@ fn generate(ast: &parser::AST, vm: &mut vm::VirtualMachine, instr: &mut Vec<vm::
             }
         }
         parser::AST::Identifier(_) => {
-            // TODO
+            // TODO: this only works for functions of one argument
+            instr.push(vm::Opcode::Arg(0));
         }
         parser::AST::Integer(i) => {
             instr.push(vm::Opcode::Iconst(*i));
@@ -246,6 +259,33 @@ fn typecheck(ast: &parser::AST, ids: &HashMap<String, Type>) -> Result<Type, Int
             Err(err) => Err(err),
         },
         parser::AST::Boolean(_) => Ok(Type::Boolean),
+        parser::AST::Call(fun, arg) => match typecheck(&fun, &ids) {
+            Ok(Type::Function(param, body)) => match typecheck(arg, &ids) {
+                Ok(typ) => {
+                    if *param == typ {
+                        Ok(*body)
+                    } else {
+                        let mut err = "Type error: expected ".to_string();
+                        err.push_str(&param.to_string());
+                        err.push_str(" found ");
+                        err.push_str(&typ.to_string());
+                        err.push('.');
+                        Err(InterpreterError {
+                            err: err,
+                            line: usize::max_value(),
+                            col: usize::max_value(),
+                        })
+                    }
+                }
+                Err(err) => Err(err),
+            },
+            Err(err) => Err(err),
+            _ => Err(InterpreterError {
+                err: "Type error: attempt to call non-lambda.".to_string(),
+                line: usize::max_value(),
+                col: usize::max_value(),
+            }),
+        },
         parser::AST::Function(param, body) => {
             let err =
                 "Type error: function parameters should be identifier or tuple of identifiers."
@@ -814,6 +854,25 @@ mod tests {
         typecheck!(
             "fn x -> fn y -> x + y end end",
             "integer -> integer -> integer"
+        );
+        eval!("(fn x -> x + 1 end) 1", Integer, 2);
+        eval!("(fn x -> ~x end) false", Boolean, true);
+        typecheck!("(fn x -> ~x end) true", "boolean");
+        typecheck!("(fn x -> x + 1 end) 1", "integer");
+        evalfails!(
+            "(fn x -> x + 1 end) true",
+            "Type error: expected integer found boolean."
+        );
+        evalfails!(
+            "(fn (x, y) -> x + y + 1 end) true",
+            "Type error: expected (integer, integer) found boolean."
+        );
+        eval!(
+            "(fn x -> (x + 1, 1, 2) end) 1",
+            Tuple,
+            Value::Integer(2),
+            Value::Integer(1),
+            Value::Integer(2)
         );
     }
 }
