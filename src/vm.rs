@@ -33,11 +33,10 @@ pub enum Opcode {
     NotEqual,
     Or,
     Pop,
-    Ret,
+    Ret(usize),
     Srcpos(usize, usize),
     Sub,
     Swap,
-    Tconst(usize),
 }
 
 pub struct Function {
@@ -68,11 +67,10 @@ impl fmt::Display for Opcode {
             Opcode::NotEqual => write!(f, "neq"),
             Opcode::Or => write!(f, "or"),
             Opcode::Pop => write!(f, "pop"),
-            Opcode::Ret => write!(f, "ret"),
+            Opcode::Ret(n) => write!(f, "ret {}", n),
             Opcode::Srcpos(line, col) => write!(f, "srcpos {} {}", line, col),
             Opcode::Sub => write!(f, "sub"),
             Opcode::Swap => write!(f, "swap"),
-            Opcode::Tconst(len) => write!(f, "tconst {}", len),
         }
     }
 }
@@ -110,10 +108,9 @@ impl VirtualMachine {
                     },
                     None => err!(self, "Stack underflow."),
                 },
-                Opcode::Arg(_) => match self.callstack.last() {
+                Opcode::Arg(offset) => match self.callstack.last() {
                     Some((_, sp, _)) => {
-                        // TODO: this alway retrieves the last argument
-                        self.stack.push(self.stack[*sp]);
+                        self.stack.push(self.stack[*sp - offset]);
                     }
                     None => err!(self, "Call stack underflow."),
                 },
@@ -259,8 +256,9 @@ impl VirtualMachine {
                     Some(_) => {}
                     None => err!(self, "Stack underflow."),
                 },
-                Opcode::Ret => match self.callstack.pop() {
-                    Some((_, _, ip)) => {
+                Opcode::Ret(n) => match self.callstack.pop() {
+                    Some((_, sp, ip)) => {
+                        self.stack.drain(sp..sp + n);
                         self.ip = ip;
                     }
                     None => err!(self, "Call stack underflow."),
@@ -288,20 +286,6 @@ impl VirtualMachine {
                     },
                     None => err!(self, "Stack underflow."),
                 },
-                Opcode::Tconst(len) => {
-                    let mut boxed: Box<Vec<i64>> = Box::new(Vec::new());
-                    for _ in 0..*len {
-                        match self.stack.pop() {
-                            Some(v) => {
-                                boxed.push(v);
-                            }
-                            None => err!(self, "Stack underflow."),
-                        }
-                    }
-                    boxed.reverse();
-                    let ptr = Box::into_raw(boxed);
-                    self.stack.push(ptr as i64);
-                }
             }
             self.ip += 1;
         }

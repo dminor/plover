@@ -75,11 +75,16 @@ impl fmt::Display for InterpreterError {
 
 impl Error for InterpreterError {}
 
-fn generate(ast: &parser::AST, vm: &mut vm::VirtualMachine, instr: &mut Vec<vm::Opcode>) {
+fn generate(
+    ast: &parser::AST,
+    vm: &mut vm::VirtualMachine,
+    instr: &mut Vec<vm::Opcode>,
+    ids: &HashMap<String, usize>,
+) {
     match ast {
         parser::AST::BinaryOp(op, lhs, rhs) => {
-            generate(rhs, vm, instr);
-            generate(lhs, vm, instr);
+            generate(rhs, vm, instr, ids);
+            generate(lhs, vm, instr, ids);
             match op {
                 parser::Operator::And => {
                     instr.push(vm::Opcode::And);
@@ -129,16 +134,33 @@ fn generate(ast: &parser::AST, vm: &mut vm::VirtualMachine, instr: &mut Vec<vm::
             instr.push(vm::Opcode::Bconst(*b));
         }
         parser::AST::Call(fun, args) => {
-            generate(args, vm, instr);
-            generate(fun, vm, instr);
+            generate(args, vm, instr, ids);
+            generate(fun, vm, instr, ids);
             instr.push(vm::Opcode::Call);
         }
-        parser::AST::Function(_, body) => {
+        parser::AST::Function(param, body) => {
             let mut fn_instr = Vec::new();
-            generate(body, vm, &mut fn_instr);
-            fn_instr.push(vm::Opcode::Swap);
-            fn_instr.push(vm::Opcode::Pop);
-            fn_instr.push(vm::Opcode::Ret);
+            let mut local_ids = ids.clone();
+            let mut count = 0;
+            match &**param {
+                parser::AST::Identifier(id) => {
+                    count = 2;
+                    local_ids.insert(id.to_string(), 0);
+                }
+                parser::AST::Tuple(elements) => {
+                    for element in elements {
+                        if let parser::AST::Identifier(id) = element {
+                            local_ids.insert(id.to_string(), count);
+                        }
+                        count += 1;
+                    }
+                }
+                _ => unreachable!(),
+            }
+            generate(body, vm, &mut fn_instr, &local_ids);
+            //fn_instr.push(vm::Opcode::Swap);
+            //fn_instr.push(vm::Opcode::Pop);
+            fn_instr.push(vm::Opcode::Ret(count - 1));
             let ip = vm.instructions.len();
             vm.instructions.extend(fn_instr);
             instr.push(vm::Opcode::Fconst(ip));
@@ -147,14 +169,14 @@ fn generate(ast: &parser::AST, vm: &mut vm::VirtualMachine, instr: &mut Vec<vm::
             let start_ip = instr.len();
             for cond in conds {
                 let mut then = Vec::new();
-                generate(&cond.0, vm, instr);
-                generate(&cond.1, vm, &mut then);
+                generate(&cond.0, vm, instr, ids);
+                generate(&cond.1, vm, &mut then, ids);
                 let offset = 2 + then.len() as i64;
                 instr.push(vm::Opcode::Jz(offset));
                 instr.extend(then);
                 instr.push(vm::Opcode::Jmp(i64::max_value()));
             }
-            generate(&els, vm, instr);
+            generate(&els, vm, instr, ids);
 
             // TODO: this rewrites all jmp instructions to be past the end of
             // the if expression. This is safe as long as if is the only
@@ -166,21 +188,20 @@ fn generate(ast: &parser::AST, vm: &mut vm::VirtualMachine, instr: &mut Vec<vm::
                 }
             }
         }
-        parser::AST::Identifier(_) => {
-            // TODO: this only works for functions of one argument
-            instr.push(vm::Opcode::Arg(0));
-        }
+        parser::AST::Identifier(id) => match ids.get(id) {
+            Some(offset) => instr.push(vm::Opcode::Arg(*offset)),
+            None => unreachable!(),
+        },
         parser::AST::Integer(i) => {
             instr.push(vm::Opcode::Iconst(*i));
         }
         parser::AST::Tuple(elements) => {
             for element in elements {
-                generate(&element, vm, instr);
+                generate(&element, vm, instr, ids);
             }
-            instr.push(vm::Opcode::Tconst(elements.len()));
         }
         parser::AST::UnaryOp(op, ast) => {
-            generate(ast, vm, instr);
+            generate(ast, vm, instr, ids);
             match op {
                 parser::Operator::Minus => {
                     instr.push(vm::Opcode::Iconst(0));
@@ -562,21 +583,34 @@ fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
     }
 }
 
-fn to_typed_value(typ: &Type, value: i64) -> Value {
+fn to_typed_value(vm: &mut vm::VirtualMachine, typ: &Type) -> Option<Value> {
     match typ {
-        Type::Boolean => Value::Boolean(value != 0),
-        Type::Function(_, _) => Value::Function,
-        Type::Integer => Value::Integer(value),
+        Type::Boolean => match vm.stack.pop() {
+            Some(value) => Some(Value::Boolean(value != 0)),
+            None => None,
+        },
+        Type::Function(_, _) => match vm.stack.pop() {
+            Some(_) => Some(Value::Function),
+            None => None,
+        },
+        Type::Integer => match vm.stack.pop() {
+            Some(value) => Some(Value::Integer(value)),
+            None => None,
+        },
         Type::Tuple(types) => {
             let mut values = Vec::new();
-            unsafe {
-                let boxed = Box::from_raw(value as *mut Vec<i64>);
-                for i in 0..types.len() {
-                    let v = to_typed_value(&types[i], boxed[i]);
-                    values.push(v);
+            for i in 0..types.len() {
+                match to_typed_value(vm, &types[types.len() - i - 1]) {
+                    Some(value) => {
+                        values.push(value);
+                    }
+                    None => {
+                        return None;
+                    }
                 }
             }
-            Value::Tuple(values)
+            values.reverse();
+            Some(Value::Tuple(values))
         }
     }
 }
@@ -585,7 +619,8 @@ pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<Value, Int
     match typecheck(ast, &HashMap::new()) {
         Ok(typ) => {
             let mut instr = Vec::new();
-            generate(ast, vm, &mut instr);
+            let ids = HashMap::new();
+            generate(ast, vm, &mut instr, &ids);
             vm.ip = vm.instructions.len();
             vm.instructions.extend(instr);
             // TODO: This is useful for debugging. Add an argument to enable it.
@@ -594,8 +629,8 @@ pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<Value, Int
             //    println!("  {} {}", i, vm.instructions[i]);
             //}
             match vm.run() {
-                Ok(()) => match vm.stack.pop() {
-                    Some(value) => Ok(to_typed_value(&typ, value)),
+                Ok(()) => match to_typed_value(vm, &typ) {
+                    Some(value) => Ok(value),
                     None => Err(InterpreterError {
                         err: "Stack underflow.".to_string(),
                         line: usize::max_value(),
@@ -874,5 +909,6 @@ mod tests {
             Value::Integer(1),
             Value::Integer(2)
         );
+        eval!("(fn (x, y) -> x + y end) (1, 2)", Integer, 3);
     }
 }
