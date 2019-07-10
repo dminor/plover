@@ -158,8 +158,6 @@ fn generate(
                 _ => unreachable!(),
             }
             generate(body, vm, &mut fn_instr, &local_ids);
-            //fn_instr.push(vm::Opcode::Swap);
-            //fn_instr.push(vm::Opcode::Pop);
             fn_instr.push(vm::Opcode::Ret(count - 1));
             let ip = vm.instructions.len();
             vm.instructions.extend(fn_instr);
