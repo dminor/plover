@@ -34,6 +34,7 @@ pub enum Opcode {
     Or,
     Pop,
     Ret(usize),
+    Rot,
     Srcpos(usize, usize),
     Sub,
     Swap,
@@ -68,6 +69,7 @@ impl fmt::Display for Opcode {
             Opcode::Or => write!(f, "or"),
             Opcode::Pop => write!(f, "pop"),
             Opcode::Ret(n) => write!(f, "ret {}", n),
+            Opcode::Rot => write!(f, "rot"),
             Opcode::Srcpos(line, col) => write!(f, "srcpos {} {}", line, col),
             Opcode::Sub => write!(f, "sub"),
             Opcode::Swap => write!(f, "swap"),
@@ -263,6 +265,16 @@ impl VirtualMachine {
                     }
                     None => err!(self, "Call stack underflow."),
                 },
+                Opcode::Rot => {
+                    if self.stack.len() < 3 {
+                        err!(self, "Stack underflow.")
+                    }
+                    let top = self.stack.len() - 1;
+                    let temp = self.stack[top];
+                    self.stack[top] = self.stack[top - 1];
+                    self.stack[top - 1] = self.stack[top - 2];
+                    self.stack[top - 2] = temp;
+                }
                 Opcode::Srcpos(line, col) => {
                     self.line = *line;
                     self.col = *col;

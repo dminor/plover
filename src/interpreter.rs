@@ -93,7 +93,16 @@ fn generate(
                     instr.push(vm::Opcode::Div);
                 }
                 parser::Operator::Equal => {
-                    instr.push(vm::Opcode::Equal);
+                    if let Ok(Type::Tuple(types)) = typecheck(rhs, &HashMap::new()) {
+                        instr.push(vm::Opcode::Equal);
+                        for _ in 1..types.len() {
+                            instr.push(vm::Opcode::Rot);
+                            instr.push(vm::Opcode::Equal);
+                            instr.push(vm::Opcode::And);
+                        }
+                    } else {
+                        instr.push(vm::Opcode::Equal);
+                    }
                 }
                 parser::Operator::Greater => {
                     instr.push(vm::Opcode::Greater);
@@ -120,7 +129,16 @@ fn generate(
                     instr.push(vm::Opcode::Not);
                 }
                 parser::Operator::NotEqual => {
-                    instr.push(vm::Opcode::NotEqual);
+                    if let Ok(Type::Tuple(types)) = typecheck(rhs, &HashMap::new()) {
+                        instr.push(vm::Opcode::NotEqual);
+                        for _ in 1..types.len() {
+                            instr.push(vm::Opcode::Rot);
+                            instr.push(vm::Opcode::NotEqual);
+                            instr.push(vm::Opcode::Or);
+                        }
+                    } else {
+                        instr.push(vm::Opcode::NotEqual);
+                    }
                 }
                 parser::Operator::Or => {
                     instr.push(vm::Opcode::Or);
@@ -908,5 +926,10 @@ mod tests {
             Value::Integer(2)
         );
         eval!("(fn (x, y) -> x + y end) (1, 2)", Integer, 3);
+        eval!("(1, 1) == (1, 0)", Boolean, false);
+        eval!("(1, 1, 1) == (1, 1, 0)", Boolean, false);
+        eval!("(1, 1, 1, 1) == (1, 1, 1, 0)", Boolean, false);
+        eval!("(1, 1, 1, 1) == (1, 1, 1, 1)", Boolean, true);
+        eval!("(1, 1) ~= (1, 0)", Boolean, true);
     }
 }
