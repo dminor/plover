@@ -284,6 +284,7 @@ macro_rules! skip {
     }};
 }
 
+#[derive(Clone)]
 pub enum Operator {
     And,
     Divide,

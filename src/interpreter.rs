@@ -32,6 +32,37 @@ impl fmt::Display for Type {
     }
 }
 
+pub enum TypedAST {
+    BinaryOp(Type, parser::Operator, Box<TypedAST>, Box<TypedAST>),
+    Boolean(bool),
+    Call(Box<TypedAST>, Box<TypedAST>),
+    Function(Box<TypedAST>, Box<TypedAST>),
+    Identifier(Type, String),
+    If(Vec<(TypedAST, TypedAST)>, Box<TypedAST>),
+    Integer(i64),
+    Tuple(Type, Vec<TypedAST>),
+    UnaryOp(Type, parser::Operator, Box<TypedAST>),
+}
+
+fn type_of(ast: &TypedAST) -> Type {
+    match ast {
+        TypedAST::BinaryOp(typ, _, _, _)
+        | TypedAST::Identifier(typ, _)
+        | TypedAST::Tuple(typ, _)
+        | TypedAST::UnaryOp(typ, _, _) => typ.clone(),
+        TypedAST::Boolean(_) => Type::Boolean,
+        TypedAST::Call(fun, _) => match &**fun {
+            TypedAST::Function(_, body) => type_of(body),
+            _ => unreachable!(),
+        },
+        TypedAST::Function(param, body) => {
+            Type::Function(Box::new(type_of(param)), Box::new(type_of(body)))
+        }
+        TypedAST::If(_, els) => type_of(els),
+        TypedAST::Integer(_) => Type::Integer,
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Value {
     Boolean(bool),
@@ -76,13 +107,13 @@ impl fmt::Display for InterpreterError {
 impl Error for InterpreterError {}
 
 fn generate(
-    ast: &parser::AST,
+    ast: &TypedAST,
     vm: &mut vm::VirtualMachine,
     instr: &mut Vec<vm::Opcode>,
     ids: &HashMap<String, usize>,
 ) {
     match ast {
-        parser::AST::BinaryOp(op, lhs, rhs) => {
+        TypedAST::BinaryOp(_, op, lhs, rhs) => {
             generate(rhs, vm, instr, ids);
             generate(lhs, vm, instr, ids);
             match op {
@@ -93,7 +124,7 @@ fn generate(
                     instr.push(vm::Opcode::Div);
                 }
                 parser::Operator::Equal => {
-                    if let Ok(Type::Tuple(types)) = typecheck(rhs, &HashMap::new()) {
+                    if let Type::Tuple(types) = type_of(rhs) {
                         instr.push(vm::Opcode::Equal);
                         for _ in 1..types.len() {
                             instr.push(vm::Opcode::Rot);
@@ -129,7 +160,7 @@ fn generate(
                     instr.push(vm::Opcode::Not);
                 }
                 parser::Operator::NotEqual => {
-                    if let Ok(Type::Tuple(types)) = typecheck(rhs, &HashMap::new()) {
+                    if let Type::Tuple(types) = type_of(rhs) {
                         instr.push(vm::Opcode::NotEqual);
                         for _ in 1..types.len() {
                             instr.push(vm::Opcode::Rot);
@@ -148,26 +179,26 @@ fn generate(
                 }
             }
         }
-        parser::AST::Boolean(b) => {
+        TypedAST::Boolean(b) => {
             instr.push(vm::Opcode::Bconst(*b));
         }
-        parser::AST::Call(fun, args) => {
+        TypedAST::Call(fun, args) => {
             generate(args, vm, instr, ids);
             generate(fun, vm, instr, ids);
             instr.push(vm::Opcode::Call);
         }
-        parser::AST::Function(param, body) => {
+        TypedAST::Function(param, body) => {
             let mut fn_instr = Vec::new();
             let mut local_ids = ids.clone();
             let mut count = 0;
             match &**param {
-                parser::AST::Identifier(id) => {
+                TypedAST::Identifier(_, id) => {
                     count = 2;
                     local_ids.insert(id.to_string(), 0);
                 }
-                parser::AST::Tuple(elements) => {
+                TypedAST::Tuple(_, elements) => {
                     for element in elements {
-                        if let parser::AST::Identifier(id) = element {
+                        if let TypedAST::Identifier(_, id) = element {
                             local_ids.insert(id.to_string(), count);
                         }
                         count += 1;
@@ -181,7 +212,7 @@ fn generate(
             vm.instructions.extend(fn_instr);
             instr.push(vm::Opcode::Fconst(ip));
         }
-        parser::AST::If(conds, els) => {
+        TypedAST::If(conds, els) => {
             let start_ip = instr.len();
             for cond in conds {
                 let mut then = Vec::new();
@@ -204,19 +235,19 @@ fn generate(
                 }
             }
         }
-        parser::AST::Identifier(id) => match ids.get(id) {
+        TypedAST::Identifier(_, id) => match ids.get(id) {
             Some(offset) => instr.push(vm::Opcode::Arg(*offset)),
             None => unreachable!(),
         },
-        parser::AST::Integer(i) => {
+        TypedAST::Integer(i) => {
             instr.push(vm::Opcode::Iconst(*i));
         }
-        parser::AST::Tuple(elements) => {
+        TypedAST::Tuple(_, elements) => {
             for element in elements {
                 generate(&element, vm, instr, ids);
             }
         }
-        parser::AST::UnaryOp(op, ast) => {
+        TypedAST::UnaryOp(_, op, ast) => {
             generate(ast, vm, instr, ids);
             match op {
                 parser::Operator::Minus => {
@@ -229,65 +260,90 @@ fn generate(
                 _ => unreachable!(),
             }
         }
-        parser::AST::None => {}
     }
 }
 
-fn typecheck(ast: &parser::AST, ids: &HashMap<String, Type>) -> Result<Type, InterpreterError> {
+fn typecheck(ast: &parser::AST, ids: &HashMap<String, Type>) -> Result<TypedAST, InterpreterError> {
     match ast {
         parser::AST::BinaryOp(op, lhs, rhs) => match typecheck(rhs, ids) {
-            Ok(rhs_type) => match typecheck(lhs, ids) {
-                Ok(lhs_type) => match op {
+            Ok(typed_rhs) => match typecheck(lhs, ids) {
+                Ok(typed_lhs) => match op {
                     parser::Operator::Divide
                     | parser::Operator::Minus
                     | parser::Operator::Mod
                     | parser::Operator::Multiply
                     | parser::Operator::Plus => {
-                        if rhs_type != Type::Integer || lhs_type != Type::Integer {
+                        if type_of(&typed_rhs) != Type::Integer
+                            || type_of(&typed_lhs) != Type::Integer
+                        {
                             Err(InterpreterError {
                                 err: "Type error: expected integer.".to_string(),
                                 line: usize::max_value(),
                                 col: usize::max_value(),
                             })
                         } else {
-                            Ok(Type::Integer)
+                            Ok(TypedAST::BinaryOp(
+                                Type::Integer,
+                                op.clone(),
+                                Box::new(typed_lhs),
+                                Box::new(typed_rhs),
+                            ))
                         }
                     }
                     parser::Operator::Greater
                     | parser::Operator::GreaterEqual
                     | parser::Operator::Less
                     | parser::Operator::LessEqual => {
-                        if rhs_type != Type::Integer || lhs_type != Type::Integer {
+                        if type_of(&typed_rhs) != Type::Integer
+                            || type_of(&typed_lhs) != Type::Integer
+                        {
                             Err(InterpreterError {
                                 err: "Type error: expected integer.".to_string(),
                                 line: usize::max_value(),
                                 col: usize::max_value(),
                             })
                         } else {
-                            Ok(Type::Boolean)
+                            Ok(TypedAST::BinaryOp(
+                                Type::Boolean,
+                                op.clone(),
+                                Box::new(typed_lhs),
+                                Box::new(typed_rhs),
+                            ))
                         }
                     }
                     parser::Operator::And | parser::Operator::Or => {
-                        if rhs_type != Type::Boolean || lhs_type != Type::Boolean {
+                        if type_of(&typed_rhs) != Type::Boolean
+                            || type_of(&typed_lhs) != Type::Boolean
+                        {
                             Err(InterpreterError {
                                 err: "Type error: expected boolean.".to_string(),
                                 line: usize::max_value(),
                                 col: usize::max_value(),
                             })
                         } else {
-                            Ok(Type::Boolean)
+                            Ok(TypedAST::BinaryOp(
+                                Type::Boolean,
+                                op.clone(),
+                                Box::new(typed_lhs),
+                                Box::new(typed_rhs),
+                            ))
                         }
                     }
                     parser::Operator::Not => unreachable!(),
                     parser::Operator::Equal | parser::Operator::NotEqual => {
-                        if rhs_type != lhs_type {
+                        if type_of(&typed_rhs) != type_of(&typed_lhs) {
                             Err(InterpreterError {
                                 err: "Type error: type mismatch.".to_string(),
                                 line: usize::max_value(),
                                 col: usize::max_value(),
                             })
                         } else {
-                            Ok(Type::Boolean)
+                            Ok(TypedAST::BinaryOp(
+                                Type::Boolean,
+                                op.clone(),
+                                Box::new(typed_lhs),
+                                Box::new(typed_rhs),
+                            ))
                         }
                     }
                 },
@@ -295,17 +351,20 @@ fn typecheck(ast: &parser::AST, ids: &HashMap<String, Type>) -> Result<Type, Int
             },
             Err(err) => Err(err),
         },
-        parser::AST::Boolean(_) => Ok(Type::Boolean),
+        parser::AST::Boolean(b) => Ok(TypedAST::Boolean(*b)),
         parser::AST::Call(fun, arg) => match typecheck(&fun, &ids) {
-            Ok(Type::Function(param, body)) => match typecheck(arg, &ids) {
-                Ok(typ) => {
-                    if *param == typ {
-                        Ok(*body)
+            Ok(TypedAST::Function(param, body)) => match typecheck(arg, &ids) {
+                Ok(typed_arg) => {
+                    if type_of(&param) == type_of(&typed_arg) {
+                        Ok(TypedAST::Call(
+                            Box::new(TypedAST::Function(param, body)),
+                            Box::new(typed_arg),
+                        ))
                     } else {
                         let mut err = "Type error: expected ".to_string();
-                        err.push_str(&param.to_string());
+                        err.push_str(&type_of(&param).to_string());
                         err.push_str(" found ");
-                        err.push_str(&typ.to_string());
+                        err.push_str(&type_of(&typed_arg).to_string());
                         err.push('.');
                         Err(InterpreterError {
                             err: err,
@@ -358,9 +417,11 @@ fn typecheck(ast: &parser::AST, ids: &HashMap<String, Type>) -> Result<Type, Int
             }
             let mut ids = ids.clone();
             let mut types = Vec::new();
+            let mut typed_params = Vec::new();
             for param in params {
                 match typeinfer(param, body) {
                     Some(typ) => {
+                        typed_params.push(TypedAST::Identifier(typ.clone(), param.to_string()));
                         types.push(typ.clone());
                         ids.insert(param.to_string(), typ);
                     }
@@ -377,18 +438,26 @@ fn typecheck(ast: &parser::AST, ids: &HashMap<String, Type>) -> Result<Type, Int
                 }
             }
             match typecheck(&body, &ids) {
-                Ok(typ) => {
+                Ok(typed_body) => {
                     if types.len() > 1 {
-                        Ok(Type::Function(Box::new(Type::Tuple(types)), Box::new(typ)))
+                        Ok(TypedAST::Function(
+                            Box::new(TypedAST::Tuple(Type::Tuple(types), typed_params)),
+                            Box::new(typed_body),
+                        ))
                     } else {
-                        Ok(Type::Function(Box::new(types[0].clone()), Box::new(typ)))
+                        match typed_params.pop() {
+                            Some(typ) => {
+                                Ok(TypedAST::Function(Box::new(typ), Box::new(typed_body)))
+                            }
+                            None => unreachable!(),
+                        }
                     }
                 }
                 Err(err) => Err(err),
             }
         }
         parser::AST::Identifier(s) => match ids.get(s) {
-            Some(typ) => Ok(typ.clone()),
+            Some(typ) => Ok(TypedAST::Identifier(typ.clone(), s.clone())),
             None => Err(InterpreterError {
                 err: "Type error: could not infer type for identifier.".to_string(),
                 line: usize::max_value(),
@@ -398,30 +467,37 @@ fn typecheck(ast: &parser::AST, ids: &HashMap<String, Type>) -> Result<Type, Int
         parser::AST::If(conds, els) => {
             let mut first = true;
             let mut inferred_type = Type::Boolean;
+            let mut typed_conds = Vec::new();
             for cond in conds {
+                let typed_cond0;
+                let typed_cond1;
                 match typecheck(&cond.0, ids) {
-                    Ok(Type::Boolean) => {}
+                    Ok(t) => match type_of(&t) {
+                        Type::Boolean => {
+                            typed_cond0 = t;
+                        }
+                        _ => {
+                            return Err(InterpreterError {
+                                err: "Type error: expected boolean.".to_string(),
+                                line: usize::max_value(),
+                                col: usize::max_value(),
+                            });
+                        }
+                    },
                     Err(err) => {
                         return Err(err);
-                    }
-                    _ => {
-                        return Err(InterpreterError {
-                            err: "Type error: expected boolean.".to_string(),
-                            line: usize::max_value(),
-                            col: usize::max_value(),
-                        });
                     }
                 }
                 match typecheck(&cond.1, ids) {
                     Ok(t) => {
                         if first {
                             first = false;
-                            inferred_type = t;
-                        } else if inferred_type != t {
+                            inferred_type = type_of(&t);
+                        } else if inferred_type != type_of(&t) {
                             let mut err = "Type mismatch: expected ".to_string();
                             err.push_str(&inferred_type.to_string());
                             err.push_str(" found ");
-                            err.push_str(&t.to_string());
+                            err.push_str(&type_of(&t).to_string());
                             err.push('.');
                             return Err(InterpreterError {
                                 err: err,
@@ -429,53 +505,62 @@ fn typecheck(ast: &parser::AST, ids: &HashMap<String, Type>) -> Result<Type, Int
                                 col: usize::max_value(),
                             });
                         }
+                        typed_cond1 = t;
                     }
                     Err(err) => {
                         return Err(err);
                     }
                 }
+                typed_conds.push((typed_cond0, typed_cond1));
             }
             match typecheck(&els, ids) {
                 Ok(t) => {
-                    if inferred_type != t {
+                    if inferred_type != type_of(&t) {
                         let mut err = "Type mismatch: expected ".to_string();
                         err.push_str(&inferred_type.to_string());
                         err.push_str(" found ");
-                        err.push_str(&t.to_string());
+                        err.push_str(&type_of(&t).to_string());
                         err.push('.');
                         return Err(InterpreterError {
                             err: err,
                             line: usize::max_value(),
                             col: usize::max_value(),
                         });
+                    } else {
+                        Ok(TypedAST::If(typed_conds, Box::new(t)))
                     }
                 }
                 Err(err) => {
                     return Err(err);
                 }
             }
-            Ok(inferred_type)
         }
-        parser::AST::Integer(_) => Ok(Type::Integer),
+        parser::AST::Integer(i) => Ok(TypedAST::Integer(*i)),
         parser::AST::Tuple(elements) => {
             let mut types = Vec::new();
+            let mut typed_elements = Vec::new();
             for element in elements {
                 match typecheck(&element, ids) {
-                    Ok(typ) => {
-                        types.push(typ);
+                    Ok(typed_element) => {
+                        types.push(type_of(&typed_element));
+                        typed_elements.push(typed_element);
                     }
                     Err(err) => {
                         return Err(err);
                     }
                 }
             }
-            Ok(Type::Tuple(types))
+            Ok(TypedAST::Tuple(Type::Tuple(types), typed_elements))
         }
         parser::AST::UnaryOp(op, ast) => match typecheck(ast, ids) {
-            Ok(ast_type) => match op {
+            Ok(typed_ast) => match op {
                 parser::Operator::Minus => {
-                    if ast_type == Type::Integer {
-                        Ok(Type::Integer)
+                    if type_of(&typed_ast) == Type::Integer {
+                        Ok(TypedAST::UnaryOp(
+                            Type::Integer,
+                            op.clone(),
+                            Box::new(typed_ast),
+                        ))
                     } else {
                         Err(InterpreterError {
                             err: "Type error: expected integer.".to_string(),
@@ -485,8 +570,12 @@ fn typecheck(ast: &parser::AST, ids: &HashMap<String, Type>) -> Result<Type, Int
                     }
                 }
                 parser::Operator::Not => {
-                    if ast_type == Type::Boolean {
-                        Ok(Type::Boolean)
+                    if type_of(&typed_ast) == Type::Boolean {
+                        Ok(TypedAST::UnaryOp(
+                            Type::Boolean,
+                            op.clone(),
+                            Box::new(typed_ast),
+                        ))
                     } else {
                         Err(InterpreterError {
                             err: "Type error: expected boolean.".to_string(),
@@ -633,10 +722,10 @@ fn to_typed_value(vm: &mut vm::VirtualMachine, typ: &Type) -> Option<Value> {
 
 pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<Value, InterpreterError> {
     match typecheck(ast, &HashMap::new()) {
-        Ok(typ) => {
+        Ok(typed_ast) => {
             let mut instr = Vec::new();
             let ids = HashMap::new();
-            generate(ast, vm, &mut instr, &ids);
+            generate(&typed_ast, vm, &mut instr, &ids);
             vm.ip = vm.instructions.len();
             vm.instructions.extend(instr);
             // TODO: This is useful for debugging. Add an argument to enable it.
@@ -645,7 +734,7 @@ pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<Value, Int
             //    println!("  {} {}", i, vm.instructions[i]);
             //}
             match vm.run() {
-                Ok(()) => match to_typed_value(vm, &typ) {
+                Ok(()) => match to_typed_value(vm, &type_of(&typed_ast)) {
                     Some(value) => Ok(value),
                     None => Err(InterpreterError {
                         err: "Stack underflow.".to_string(),
@@ -665,6 +754,7 @@ pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<Value, Int
 #[cfg(test)]
 mod tests {
     use crate::interpreter;
+    use crate::interpreter::type_of;
     use crate::interpreter::Type;
     use crate::interpreter::Value;
     use crate::parser;
@@ -755,8 +845,8 @@ mod tests {
             let ids = HashMap::new();
             match parser::parse($input) {
                 parser::ParseResult::Matched(ast, _) => match interpreter::typecheck(&ast, &ids) {
-                    Ok(typ) => {
-                        assert_eq!(typ.to_string(), $value);
+                    Ok(typed_ast) => {
+                        assert_eq!(type_of(&typed_ast).to_string(), $value);
                     }
                     Err(_) => {
                         assert!(false);
