@@ -1,7 +1,7 @@
 use std::fmt;
 
 /*
-expression     -> "let" ( IDENTIFIER ":=" expression )* in expression end
+expression     -> "let" IDENTIFIER ":=" expression
                   | conditional
 conditional    -> "if" equality "then" expression
                   ("elsif" equality "then" expression)*
@@ -99,6 +99,30 @@ macro_rules! arrow {
                         _ => {
                             return ParseResult::Error(
                                 "Expected >.".to_string(),
+                                $ps.line,
+                                $ps.col,
+                            );
+                        }
+                    }
+                }
+                _ => false,
+            },
+            None => false,
+        }
+    }};
+}
+
+macro_rules! assignment {
+    ($ps:expr) => {{
+        match $ps.chars.peek() {
+            Some(c) => match c {
+                ':' => {
+                    $ps.chars.next();
+                    match $ps.chars.next() {
+                        Some('=') => true,
+                        _ => {
+                            return ParseResult::Error(
+                                "Expected =.".to_string(),
                                 $ps.line,
                                 $ps.col,
                             );
@@ -331,6 +355,7 @@ pub enum AST {
     Identifier(String),
     If(Vec<(AST, AST)>, Box<AST>),
     Integer(i64),
+    Let(Box<AST>, Box<AST>),
     Tuple(Vec<AST>),
     UnaryOp(Operator, Box<AST>),
     None,
@@ -352,6 +377,7 @@ impl fmt::Display for AST {
                 write!(f, "(else {}))", els)
             }
             AST::Integer(n) => write!(f, "{}:Integer", n),
+            AST::Let(id, value) => write!(f, "(define {} {})", id, value),
             AST::Tuple(elements) => {
                 write!(f, "(")?;
                 for i in 0..elements.len() {
@@ -382,7 +408,7 @@ pub struct ParseState<'a> {
 }
 
 fn expression(ps: ParseState) -> ParseResult {
-    or!(ps, conditional, equality)
+    or!(ps, conditional, letexpr, equality)
 }
 
 fn conditional(ps: ParseState) -> ParseResult {
@@ -468,6 +494,43 @@ fn conditional(ps: ParseState) -> ParseResult {
                 }
             }
         },
+        None => ParseResult::NotMatched(ps),
+    }
+}
+
+fn letexpr(ps: ParseState) -> ParseResult {
+    let mut lps = ps.clone();
+    lps = skip!(lps, whitespace);
+    match expect!(lps, "let") {
+        Some(_) => {
+            lps = skip!(lps, whitespace);
+            match value(lps) {
+                ParseResult::Matched(id, ps) => {
+                    lps = skip!(ps, whitespace);
+                    if assignment!(lps) {
+                        match expression(lps) {
+                            ParseResult::Matched(value, ps) => {
+                                ParseResult::Matched(AST::Let(Box::new(id), Box::new(value)), ps)
+                            }
+                            ParseResult::NotMatched(ps) => ParseResult::Error(
+                                "Expected expression.".to_string(),
+                                ps.line,
+                                ps.col,
+                            ),
+                            ParseResult::Error(err, line, col) => {
+                                ParseResult::Error(err, line, col)
+                            }
+                        }
+                    } else {
+                        ParseResult::Error("Expected :=.".to_string(), lps.line, lps.col)
+                    }
+                }
+                ParseResult::NotMatched(ps) => {
+                    ParseResult::Error("Expected value.".to_string(), ps.line, ps.col)
+                }
+                ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
+            }
+        }
         None => ParseResult::NotMatched(ps),
     }
 }
@@ -881,6 +944,15 @@ mod tests {
         parse!(
             "fn x -> x + 1 end 1",
             "(apply (fn x:Identifier (+ x:Identifier 1:Integer)) 1:Integer)"
+        );
+        parse!("let x := 1", "(define x:Identifier 1:Integer)");
+        parse!(
+            "let f := fn x -> x + 1 end",
+            "(define f:Identifier (fn x:Identifier (+ x:Identifier 1:Integer)))"
+        );
+        parse!(
+            "let t := (1, 2, 3)",
+            "(define t:Identifier (1:Integer, 2:Integer, 3:Integer):Tuple)"
         );
     }
 }

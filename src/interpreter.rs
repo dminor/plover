@@ -536,6 +536,11 @@ fn typecheck(ast: &parser::AST, ids: &HashMap<String, Type>) -> Result<TypedAST,
             }
         }
         parser::AST::Integer(i) => Ok(TypedAST::Integer(*i)),
+        parser::AST::Let(_, _) => Err(InterpreterError {
+            err: "Let not implemented".to_string(),
+            line: usize::max_value(),
+            col: usize::max_value(),
+        }),
         parser::AST::Tuple(elements) => {
             let mut types = Vec::new();
             let mut typed_elements = Vec::new();
