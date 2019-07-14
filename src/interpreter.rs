@@ -40,6 +40,7 @@ pub enum TypedAST {
     Identifier(Type, String),
     If(Vec<(TypedAST, TypedAST)>, Box<TypedAST>),
     Integer(i64),
+    Let(Type, String, Box<TypedAST>),
     Tuple(Type, Vec<TypedAST>),
     UnaryOp(Type, parser::Operator, Box<TypedAST>),
 }
@@ -48,6 +49,7 @@ fn type_of(ast: &TypedAST) -> Type {
     match ast {
         TypedAST::BinaryOp(typ, _, _, _)
         | TypedAST::Identifier(typ, _)
+        | TypedAST::Let(typ, _, _)
         | TypedAST::Tuple(typ, _)
         | TypedAST::UnaryOp(typ, _, _) => typ.clone(),
         TypedAST::Boolean(_) => Type::Boolean,
@@ -241,6 +243,9 @@ fn generate(
         },
         TypedAST::Integer(i) => {
             instr.push(vm::Opcode::Iconst(*i));
+        }
+        TypedAST::Let(_, _, _) => {
+            // TODO
         }
         TypedAST::Tuple(_, elements) => {
             for element in elements {
@@ -536,11 +541,39 @@ fn typecheck(ast: &parser::AST, ids: &HashMap<String, Type>) -> Result<TypedAST,
             }
         }
         parser::AST::Integer(i) => Ok(TypedAST::Integer(*i)),
-        parser::AST::Let(_, _) => Err(InterpreterError {
-            err: "Let not implemented".to_string(),
-            line: usize::max_value(),
-            col: usize::max_value(),
-        }),
+        parser::AST::Let(id, value) => match &**id {
+            parser::AST::Identifier(id) => {
+                let mut ids = ids.clone();
+                match typeinfer(id, value) {
+                    Some(typ) => {
+                        ids.insert(id.to_string(), typ);
+                        match typecheck(value, &ids) {
+                            Ok(typed_body) => Ok(TypedAST::Let(
+                                type_of(&typed_body),
+                                id.clone(),
+                                Box::new(typed_body),
+                            )),
+                            Err(err) => Err(err),
+                        }
+                    }
+                    None => {
+                        let mut err = "Type error: could not infer type for: ".to_string();
+                        err.push_str(id);
+                        err.push('.');
+                        return Err(InterpreterError {
+                            err: err,
+                            line: usize::max_value(),
+                            col: usize::max_value(),
+                        });
+                    }
+                }
+            }
+            _ => Err(InterpreterError {
+                err: "Type error: expected identifier.".to_string(),
+                line: usize::max_value(),
+                col: usize::max_value(),
+            }),
+        },
         parser::AST::Tuple(elements) => {
             let mut types = Vec::new();
             let mut typed_elements = Vec::new();
@@ -668,7 +701,10 @@ fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
                 None => typeinfer(id, rhs),
             }
         }
+        parser::AST::Boolean(_) => Some(Type::Boolean),
         parser::AST::Function(_, body) => typeinfer(id, body),
+        parser::AST::Integer(_) => Some(Type::Integer),
+        parser::AST::Let(_, value) => typeinfer(id, value),
         parser::AST::Tuple(elements) => {
             for element in elements {
                 match typeinfer(id, element) {
@@ -1026,5 +1062,11 @@ mod tests {
         eval!("(1, 1, 1, 1) == (1, 1, 1, 0)", Boolean, false);
         eval!("(1, 1, 1, 1) == (1, 1, 1, 1)", Boolean, true);
         eval!("(1, 1) ~= (1, 0)", Boolean, true);
+        typeinfer!("let x := 1", "x", Type::Integer);
+        typeinfer!("let x := let y := 1", "x", Type::Integer);
+        typeinfer!("let x := let y := 1", "y", Type::Integer);
+        typecheck!("let x := 1", "integer");
+        typecheck!("let x := false", "boolean");
+        typecheck!("let x := (1, false)", "(integer, boolean)");
     }
 }
