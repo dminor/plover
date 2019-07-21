@@ -60,7 +60,7 @@ fn main() -> io::Result<()> {
 
     let stdin = io::stdin();
     let mut stdout = io::stdout();
-    println!("Welcome to Hobbes!");
+    println!("Welcome to Locke!");
     print!("> ");
     stdout.flush()?;
 
