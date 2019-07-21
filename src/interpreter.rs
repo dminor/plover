@@ -5,7 +5,7 @@ use std::error::Error;
 use std::fmt;
 
 #[derive(Clone, Debug, PartialEq)]
-enum Type {
+pub enum Type {
     Boolean,
     Function(Box<Type>, Box<Type>),
     Integer,
@@ -53,8 +53,8 @@ fn type_of(ast: &TypedAST) -> Type {
         | TypedAST::Tuple(typ, _)
         | TypedAST::UnaryOp(typ, _, _) => typ.clone(),
         TypedAST::Boolean(_) => Type::Boolean,
-        TypedAST::Call(fun, _) => match &**fun {
-            TypedAST::Function(_, body) => type_of(body),
+        TypedAST::Call(fun, _) => match type_of(fun) {
+            Type::Function(_, body) => *body.clone(),
             _ => unreachable!(),
         },
         TypedAST::Function(param, body) => {
@@ -239,13 +239,18 @@ fn generate(
         }
         TypedAST::Identifier(_, id) => match ids.get(id) {
             Some(offset) => instr.push(vm::Opcode::Arg(*offset)),
-            None => unreachable!(),
+            None => {
+                // type checking ensures this is a valid identifier
+                instr.push(vm::Opcode::GetEnv(id.to_string()))
+            }
         },
         TypedAST::Integer(i) => {
             instr.push(vm::Opcode::Iconst(*i));
         }
-        TypedAST::Let(_, _, _) => {
-            // TODO
+        TypedAST::Let(_, id, value) => {
+            generate(&value, vm, instr, ids);
+            instr.push(vm::Opcode::Dup);
+            instr.push(vm::Opcode::SetEnv(id.to_string()));
         }
         TypedAST::Tuple(_, elements) => {
             for element in elements {
@@ -268,7 +273,10 @@ fn generate(
     }
 }
 
-fn typecheck(ast: &parser::AST, ids: &HashMap<String, Type>) -> Result<TypedAST, InterpreterError> {
+fn typecheck(
+    ast: &parser::AST,
+    ids: &mut HashMap<String, Type>,
+) -> Result<TypedAST, InterpreterError> {
     match ast {
         parser::AST::BinaryOp(op, lhs, rhs) => match typecheck(rhs, ids) {
             Ok(typed_rhs) => match typecheck(lhs, ids) {
@@ -357,22 +365,27 @@ fn typecheck(ast: &parser::AST, ids: &HashMap<String, Type>) -> Result<TypedAST,
             Err(err) => Err(err),
         },
         parser::AST::Boolean(b) => Ok(TypedAST::Boolean(*b)),
-        parser::AST::Call(fun, arg) => match typecheck(&fun, &ids) {
-            Ok(TypedAST::Function(param, body)) => match typecheck(arg, &ids) {
+        parser::AST::Call(fun, arg) => match typecheck(&fun, ids) {
+            Ok(typed_fun) => match typecheck(arg, ids) {
                 Ok(typed_arg) => {
-                    if type_of(&param) == type_of(&typed_arg) {
-                        Ok(TypedAST::Call(
-                            Box::new(TypedAST::Function(param, body)),
-                            Box::new(typed_arg),
-                        ))
+                    if let Type::Function(param, _) = type_of(&typed_fun) {
+                        if *param == type_of(&typed_arg) {
+                            Ok(TypedAST::Call(Box::new(typed_fun), Box::new(typed_arg)))
+                        } else {
+                            let mut err = "Type error: expected ".to_string();
+                            err.push_str(&param.to_string());
+                            err.push_str(" found ");
+                            err.push_str(&type_of(&typed_arg).to_string());
+                            err.push('.');
+                            Err(InterpreterError {
+                                err: err,
+                                line: usize::max_value(),
+                                col: usize::max_value(),
+                            })
+                        }
                     } else {
-                        let mut err = "Type error: expected ".to_string();
-                        err.push_str(&type_of(&param).to_string());
-                        err.push_str(" found ");
-                        err.push_str(&type_of(&typed_arg).to_string());
-                        err.push('.');
                         Err(InterpreterError {
-                            err: err,
+                            err: "Type error: attempt to call non-lambda.".to_string(),
                             line: usize::max_value(),
                             col: usize::max_value(),
                         })
@@ -381,11 +394,6 @@ fn typecheck(ast: &parser::AST, ids: &HashMap<String, Type>) -> Result<TypedAST,
                 Err(err) => Err(err),
             },
             Err(err) => Err(err),
-            _ => Err(InterpreterError {
-                err: "Type error: attempt to call non-lambda.".to_string(),
-                line: usize::max_value(),
-                col: usize::max_value(),
-            }),
         },
         parser::AST::Function(param, body) => {
             let err =
@@ -442,7 +450,7 @@ fn typecheck(ast: &parser::AST, ids: &HashMap<String, Type>) -> Result<TypedAST,
                     }
                 }
             }
-            match typecheck(&body, &ids) {
+            match typecheck(&body, &mut ids) {
                 Ok(typed_body) => {
                     if types.len() > 1 {
                         Ok(TypedAST::Function(
@@ -542,32 +550,17 @@ fn typecheck(ast: &parser::AST, ids: &HashMap<String, Type>) -> Result<TypedAST,
         }
         parser::AST::Integer(i) => Ok(TypedAST::Integer(*i)),
         parser::AST::Let(id, value) => match &**id {
-            parser::AST::Identifier(id) => {
-                let mut ids = ids.clone();
-                match typeinfer(id, value) {
-                    Some(typ) => {
-                        ids.insert(id.to_string(), typ);
-                        match typecheck(value, &ids) {
-                            Ok(typed_body) => Ok(TypedAST::Let(
-                                type_of(&typed_body),
-                                id.clone(),
-                                Box::new(typed_body),
-                            )),
-                            Err(err) => Err(err),
-                        }
-                    }
-                    None => {
-                        let mut err = "Type error: could not infer type for: ".to_string();
-                        err.push_str(id);
-                        err.push('.');
-                        return Err(InterpreterError {
-                            err: err,
-                            line: usize::max_value(),
-                            col: usize::max_value(),
-                        });
-                    }
+            parser::AST::Identifier(id) => match typecheck(value, ids) {
+                Ok(typed_value) => {
+                    ids.insert(id.to_string(), type_of(&typed_value));
+                    Ok(TypedAST::Let(
+                        type_of(&typed_value),
+                        id.clone(),
+                        Box::new(typed_value),
+                    ))
                 }
-            }
+                Err(err) => Err(err),
+            },
             _ => Err(InterpreterError {
                 err: "Type error: expected identifier.".to_string(),
                 line: usize::max_value(),
@@ -762,7 +755,7 @@ fn to_typed_value(vm: &mut vm::VirtualMachine, typ: &Type) -> Option<Value> {
 }
 
 pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<Value, InterpreterError> {
-    match typecheck(ast, &HashMap::new()) {
+    match typecheck(ast, &mut vm.type_env) {
         Ok(typed_ast) => {
             let mut instr = Vec::new();
             let ids = HashMap::new();
@@ -883,16 +876,18 @@ mod tests {
 
     macro_rules! typecheck {
         ($input:expr, $value:expr) => {{
-            let ids = HashMap::new();
+            let mut ids = HashMap::new();
             match parser::parse($input) {
-                parser::ParseResult::Matched(ast, _) => match interpreter::typecheck(&ast, &ids) {
-                    Ok(typed_ast) => {
-                        assert_eq!(type_of(&typed_ast).to_string(), $value);
+                parser::ParseResult::Matched(ast, _) => {
+                    match interpreter::typecheck(&ast, &mut ids) {
+                        Ok(typed_ast) => {
+                            assert_eq!(type_of(&typed_ast).to_string(), $value);
+                        }
+                        Err(_) => {
+                            assert!(false);
+                        }
                     }
-                    Err(_) => {
-                        assert!(false);
-                    }
-                },
+                }
                 parser::ParseResult::NotMatched(_) => {
                     assert!(false);
                 }
@@ -1068,5 +1063,7 @@ mod tests {
         typecheck!("let x := 1", "integer");
         typecheck!("let x := false", "boolean");
         typecheck!("let x := (1, false)", "(integer, boolean)");
+        eval!("let x := 42", Integer, 42);
+        eval!("let f := fn x -> x + 1 end 1", Integer, 2);
     }
 }

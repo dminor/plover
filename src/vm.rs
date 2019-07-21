@@ -1,4 +1,5 @@
 use crate::interpreter;
+use std::collections::HashMap;
 use std::fmt;
 
 macro_rules! err {
@@ -18,8 +19,10 @@ pub enum Opcode {
     Bconst(bool),
     Call,
     Div,
+    Dup,
     Equal,
     Fconst(usize),
+    GetEnv(String),
     Greater,
     GreaterEqual,
     Iconst(i64),
@@ -35,6 +38,7 @@ pub enum Opcode {
     Pop,
     Ret(usize),
     Rot,
+    SetEnv(String),
     Srcpos(usize, usize),
     Sub,
     Swap,
@@ -53,8 +57,10 @@ impl fmt::Display for Opcode {
             Opcode::Bconst(b) => write!(f, "const {}", b),
             Opcode::Call => write!(f, "call"),
             Opcode::Div => write!(f, "div"),
+            Opcode::Dup => write!(f, "dup"),
             Opcode::Equal => write!(f, "eq"),
             Opcode::Fconst(ip) => write!(f, "lambda @{}", ip),
+            Opcode::GetEnv(id) => write!(f, "getenv {}", id),
             Opcode::Greater => write!(f, "gt"),
             Opcode::GreaterEqual => write!(f, "ge"),
             Opcode::Iconst(i) => write!(f, "const {}", i),
@@ -70,6 +76,7 @@ impl fmt::Display for Opcode {
             Opcode::Pop => write!(f, "pop"),
             Opcode::Ret(n) => write!(f, "ret {}", n),
             Opcode::Rot => write!(f, "rot"),
+            Opcode::SetEnv(id) => write!(f, "setenv {}", id),
             Opcode::Srcpos(line, col) => write!(f, "srcpos {} {}", line, col),
             Opcode::Sub => write!(f, "sub"),
             Opcode::Swap => write!(f, "swap"),
@@ -81,7 +88,11 @@ pub struct VirtualMachine {
     pub instructions: Vec<Opcode>,
     pub ip: usize,
     pub stack: Vec<i64>,
-    pub callstack: Vec<(Function, usize, usize)>,
+    pub callstack: Vec<(usize, usize, usize)>,
+    pub fconsts: Vec<Function>,
+
+    pub env: HashMap<String, i64>,
+    pub type_env: HashMap<String, interpreter::Type>,
 
     pub line: usize,
     pub col: usize,
@@ -120,13 +131,13 @@ impl VirtualMachine {
                     self.stack.push(*b as i64);
                 }
                 Opcode::Call => match self.stack.pop() {
-                    Some(fun) => unsafe {
-                        let boxed = Box::from_raw(fun as *mut Function);
+                    Some(fun) => {
                         let ip = self.ip;
-                        self.ip = boxed.ip;
-                        self.callstack.push((*boxed, self.stack.len() - 1, ip));
+                        let fun = fun as usize;
+                        self.ip = self.fconsts[fun].ip;
+                        self.callstack.push((fun, self.stack.len() - 1, ip));
                         continue;
-                    },
+                    }
                     None => err!(self, "Stack underflow."),
                 },
                 Opcode::Div => match self.stack.pop() {
@@ -141,6 +152,13 @@ impl VirtualMachine {
                     },
                     None => err!(self, "Stack underflow."),
                 },
+                Opcode::Dup => match self.stack.pop() {
+                    Some(v) => {
+                        self.stack.push(v);
+                        self.stack.push(v);
+                    }
+                    None => err!(self, "Stack underflow."),
+                },
                 Opcode::Equal => match self.stack.pop() {
                     Some(x) => match self.stack.pop() {
                         Some(y) => {
@@ -151,11 +169,15 @@ impl VirtualMachine {
                     None => err!(self, "Stack underflow."),
                 },
                 Opcode::Fconst(ip) => {
-                    let fun = Function { ip: *ip };
-                    let boxed: Box<Function> = Box::new(fun);
-                    let ptr = Box::into_raw(boxed);
-                    self.stack.push(ptr as i64);
+                    self.fconsts.push(Function { ip: *ip });
+                    self.stack.push((self.fconsts.len() - 1) as i64);
                 }
+                Opcode::GetEnv(id) => match self.env.get(id) {
+                    Some(x) => {
+                        self.stack.push(*x);
+                    }
+                    None => err!(self, "Unknown identifier."),
+                },
                 Opcode::Greater => match self.stack.pop() {
                     Some(x) => match self.stack.pop() {
                         Some(y) => {
@@ -275,6 +297,12 @@ impl VirtualMachine {
                     self.stack[top - 1] = self.stack[top - 2];
                     self.stack[top - 2] = temp;
                 }
+                Opcode::SetEnv(id) => match self.stack.pop() {
+                    Some(x) => {
+                        self.env.insert(id.to_string(), x);
+                    }
+                    None => err!(self, "Stack underflow."),
+                },
                 Opcode::Srcpos(line, col) => {
                     self.line = *line;
                     self.col = *col;
@@ -310,6 +338,9 @@ impl VirtualMachine {
             ip: 0,
             stack: Vec::new(),
             callstack: Vec::new(),
+            fconsts: Vec::new(),
+            env: HashMap::new(),
+            type_env: HashMap::new(),
             line: usize::max_value(),
             col: usize::max_value(),
         }
