@@ -44,10 +44,6 @@ pub enum Opcode {
     Swap,
 }
 
-pub struct Function {
-    ip: usize,
-}
-
 impl fmt::Display for Opcode {
     fn fmt<'a>(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -84,14 +80,46 @@ impl fmt::Display for Opcode {
     }
 }
 
+pub struct Function {
+    ip: usize,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Value {
+    Boolean(bool),
+    Function(usize),
+    Integer(i64),
+    Tuple(Vec<Value>),
+}
+
+impl fmt::Display for Value {
+    fn fmt<'a>(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Value::Boolean(b) => write!(f, "{}", b),
+            Value::Function(ip) => write!(f, "(lambda @{})", ip),
+            Value::Integer(v) => write!(f, "{}", v),
+            Value::Tuple(elements) => {
+                write!(f, "(")?;
+                for i in 0..elements.len() {
+                    write!(f, "{}", elements[i])?;
+                    if i + 1 != elements.len() {
+                        write!(f, ", ")?;
+                    }
+                }
+                write!(f, ")")
+            }
+        }
+    }
+}
+
 pub struct VirtualMachine {
     pub instructions: Vec<Opcode>,
     pub ip: usize,
-    pub stack: Vec<i64>,
-    pub callstack: Vec<(usize, usize, usize)>,
+    pub stack: Vec<Value>,
+    pub callstack: Vec<(Function, usize, usize)>,
     pub fconsts: Vec<Function>,
 
-    pub env: HashMap<String, i64>,
+    pub env: HashMap<String, Value>,
     pub type_env: HashMap<String, interpreter::Type>,
 
     pub line: usize,
@@ -103,182 +131,179 @@ impl VirtualMachine {
         while self.ip < self.instructions.len() {
             match &self.instructions[self.ip] {
                 Opcode::Add => match self.stack.pop() {
-                    Some(x) => match self.stack.pop() {
-                        Some(y) => {
-                            self.stack.push(x + y);
+                    Some(Value::Integer(x)) => match self.stack.pop() {
+                        Some(Value::Integer(y)) => {
+                            self.stack.push(Value::Integer(x + y));
                         }
-                        None => err!(self, "Stack underflow."),
+                        _ => unreachable!(),
                     },
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
                 Opcode::And => match self.stack.pop() {
-                    Some(x) => match self.stack.pop() {
-                        Some(y) => {
-                            let b = x != 0 && y != 0;
-                            self.stack.push(b as i64);
+                    Some(Value::Boolean(x)) => match self.stack.pop() {
+                        Some(Value::Boolean(y)) => {
+                            self.stack.push(Value::Boolean(x && y));
                         }
-                        None => err!(self, "Stack underflow."),
+                        _ => unreachable!(),
                     },
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
                 Opcode::Arg(offset) => match self.callstack.last() {
                     Some((_, sp, _)) => {
-                        self.stack.push(self.stack[*sp - offset]);
+                        self.stack.push(self.stack[*sp - offset].clone());
                     }
                     None => err!(self, "Call stack underflow."),
                 },
                 Opcode::Bconst(b) => {
-                    self.stack.push(*b as i64);
+                    self.stack.push(Value::Boolean(*b));
                 }
                 Opcode::Call => match self.stack.pop() {
-                    Some(fun) => {
-                        let ip = self.ip;
-                        let fun = fun as usize;
-                        self.ip = self.fconsts[fun].ip;
-                        self.callstack.push((fun, self.stack.len() - 1, ip));
+                    Some(Value::Function(ip)) => {
+                        let return_ip = self.ip;
+                        self.ip = ip;
+                        self.callstack
+                            .push((Function { ip: ip }, self.stack.len() - 1, return_ip));
                         continue;
                     }
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
                 Opcode::Div => match self.stack.pop() {
-                    Some(x) => match self.stack.pop() {
-                        Some(y) => {
+                    Some(Value::Integer(x)) => match self.stack.pop() {
+                        Some(Value::Integer(y)) => {
                             if y == 0 {
                                 err!(self, "Division by zero.")
                             }
-                            self.stack.push(x / y);
+                            self.stack.push(Value::Integer(x / y));
                         }
-                        None => err!(self, "Stack underflow."),
+                        _ => unreachable!(),
                     },
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
                 Opcode::Dup => match self.stack.pop() {
                     Some(v) => {
-                        self.stack.push(v);
+                        self.stack.push(v.clone());
                         self.stack.push(v);
                     }
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
                 Opcode::Equal => match self.stack.pop() {
                     Some(x) => match self.stack.pop() {
                         Some(y) => {
-                            self.stack.push((x == y) as i64);
+                            self.stack.push(Value::Boolean(x == y));
                         }
-                        None => err!(self, "Stack underflow."),
+                        _ => unreachable!(),
                     },
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
                 Opcode::Fconst(ip) => {
-                    self.fconsts.push(Function { ip: *ip });
-                    self.stack.push((self.fconsts.len() - 1) as i64);
+                    self.stack.push(Value::Function(*ip));
                 }
                 Opcode::GetEnv(id) => match self.env.get(id) {
                     Some(x) => {
-                        self.stack.push(*x);
+                        self.stack.push(x.clone());
                     }
                     None => err!(self, "Unknown identifier."),
                 },
                 Opcode::Greater => match self.stack.pop() {
-                    Some(x) => match self.stack.pop() {
-                        Some(y) => {
-                            self.stack.push((x > y) as i64);
+                    Some(Value::Integer(x)) => match self.stack.pop() {
+                        Some(Value::Integer(y)) => {
+                            self.stack.push(Value::Boolean(x > y));
                         }
-                        None => err!(self, "Stack underflow."),
+                        _ => unreachable!(),
                     },
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
                 Opcode::GreaterEqual => match self.stack.pop() {
-                    Some(x) => match self.stack.pop() {
-                        Some(y) => {
-                            self.stack.push((x >= y) as i64);
+                    Some(Value::Integer(x)) => match self.stack.pop() {
+                        Some(Value::Integer(y)) => {
+                            self.stack.push(Value::Boolean(x >= y));
                         }
-                        None => err!(self, "Stack underflow."),
+                        _ => unreachable!(),
                     },
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
                 Opcode::Iconst(i) => {
-                    self.stack.push(*i);
+                    self.stack.push(Value::Integer(*i));
                 }
                 Opcode::Jmp(offset) => {
                     self.ip = (self.ip as i64 + offset) as usize;
                     continue;
                 }
                 Opcode::Jz(offset) => match self.stack.pop() {
-                    Some(v) => {
-                        if v == 0 {
+                    Some(Value::Boolean(v)) => {
+                        if !v {
                             self.ip = (self.ip as i64 + offset) as usize;
                             continue;
                         }
                     }
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
                 Opcode::Less => match self.stack.pop() {
-                    Some(x) => match self.stack.pop() {
-                        Some(y) => {
-                            self.stack.push((x < y) as i64);
+                    Some(Value::Integer(x)) => match self.stack.pop() {
+                        Some(Value::Integer(y)) => {
+                            self.stack.push(Value::Boolean(x < y));
                         }
-                        None => err!(self, "Stack underflow."),
+                        _ => unreachable!(),
                     },
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
                 Opcode::LessEqual => match self.stack.pop() {
-                    Some(x) => match self.stack.pop() {
-                        Some(y) => {
-                            self.stack.push((x <= y) as i64);
+                    Some(Value::Integer(x)) => match self.stack.pop() {
+                        Some(Value::Integer(y)) => {
+                            self.stack.push(Value::Boolean(x <= y));
                         }
-                        None => err!(self, "Stack underflow."),
+                        _ => unreachable!(),
                     },
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
                 Opcode::Mod => match self.stack.pop() {
-                    Some(x) => match self.stack.pop() {
-                        Some(y) => {
+                    Some(Value::Integer(x)) => match self.stack.pop() {
+                        Some(Value::Integer(y)) => {
                             if y == 0 {
                                 err!(self, "Division by zero.")
                             }
-                            self.stack.push(x % y);
+                            self.stack.push(Value::Integer(x % y));
                         }
-                        None => err!(self, "Stack underflow."),
+                        _ => unreachable!(),
                     },
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
                 Opcode::Mul => match self.stack.pop() {
-                    Some(x) => match self.stack.pop() {
-                        Some(y) => {
-                            self.stack.push(x * y);
+                    Some(Value::Integer(x)) => match self.stack.pop() {
+                        Some(Value::Integer(y)) => {
+                            self.stack.push(Value::Integer(x * y));
                         }
-                        None => err!(self, "Stack underflow."),
+                        _ => unreachable!(),
                     },
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
                 Opcode::NotEqual => match self.stack.pop() {
                     Some(x) => match self.stack.pop() {
                         Some(y) => {
-                            self.stack.push((x != y) as i64);
+                            self.stack.push(Value::Boolean(x != y));
                         }
-                        None => err!(self, "Stack underflow."),
+                        _ => unreachable!(),
                     },
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
                 Opcode::Not => match self.stack.pop() {
-                    Some(x) => {
-                        self.stack.push((x == 0) as i64);
+                    Some(Value::Boolean(x)) => {
+                        self.stack.push(Value::Boolean(!x));
                     }
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
                 Opcode::Or => match self.stack.pop() {
-                    Some(x) => match self.stack.pop() {
-                        Some(y) => {
-                            let b = (x != 0) || (y != 0);
-                            self.stack.push(b as i64);
+                    Some(Value::Boolean(x)) => match self.stack.pop() {
+                        Some(Value::Boolean(y)) => {
+                            self.stack.push(Value::Boolean(x || y));
                         }
-                        None => err!(self, "Stack underflow."),
+                        _ => unreachable!(),
                     },
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
                 Opcode::Pop => match self.stack.pop() {
                     Some(_) => {}
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
                 Opcode::Ret(n) => match self.callstack.pop() {
                     Some((_, sp, ip)) => {
@@ -291,30 +316,28 @@ impl VirtualMachine {
                     if self.stack.len() < 3 {
                         err!(self, "Stack underflow.")
                     }
-                    let top = self.stack.len() - 1;
-                    let temp = self.stack[top];
-                    self.stack[top] = self.stack[top - 1];
-                    self.stack[top - 1] = self.stack[top - 2];
-                    self.stack[top - 2] = temp;
+                    if let Some(a) = self.stack.pop() {
+                        self.stack.insert(self.stack.len() - 2, a);
+                    }
                 }
                 Opcode::SetEnv(id) => match self.stack.pop() {
                     Some(x) => {
                         self.env.insert(id.to_string(), x);
                     }
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
                 Opcode::Srcpos(line, col) => {
                     self.line = *line;
                     self.col = *col;
                 }
                 Opcode::Sub => match self.stack.pop() {
-                    Some(x) => match self.stack.pop() {
-                        Some(y) => {
-                            self.stack.push(x - y);
+                    Some(Value::Integer(x)) => match self.stack.pop() {
+                        Some(Value::Integer(y)) => {
+                            self.stack.push(Value::Integer(x - y));
                         }
-                        None => err!(self, "Stack underflow."),
+                        _ => unreachable!(),
                     },
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
                 Opcode::Swap => match self.stack.pop() {
                     Some(x) => match self.stack.pop() {
@@ -322,9 +345,9 @@ impl VirtualMachine {
                             self.stack.push(x);
                             self.stack.push(y);
                         }
-                        None => err!(self, "Stack underflow."),
+                        _ => unreachable!(),
                     },
-                    None => err!(self, "Stack underflow."),
+                    _ => unreachable!(),
                 },
             }
             self.ip += 1;

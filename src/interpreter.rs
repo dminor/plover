@@ -65,34 +65,6 @@ fn type_of(ast: &TypedAST) -> Type {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub enum Value {
-    Boolean(bool),
-    Function,
-    Integer(i64),
-    Tuple(Vec<Value>),
-}
-
-impl fmt::Display for Value {
-    fn fmt<'a>(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Value::Boolean(b) => write!(f, "{}", b),
-            Value::Function => write!(f, "(lambda)"),
-            Value::Integer(v) => write!(f, "{}", v),
-            Value::Tuple(elements) => {
-                write!(f, "(")?;
-                for i in 0..elements.len() {
-                    write!(f, "{}", elements[i])?;
-                    if i + 1 != elements.len() {
-                        write!(f, ", ")?;
-                    }
-                }
-                write!(f, ")")
-            }
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct InterpreterError {
     pub err: String,
@@ -722,20 +694,8 @@ fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
     }
 }
 
-fn to_typed_value(vm: &mut vm::VirtualMachine, typ: &Type) -> Option<Value> {
+fn to_typed_value(vm: &mut vm::VirtualMachine, typ: &Type) -> Option<vm::Value> {
     match typ {
-        Type::Boolean => match vm.stack.pop() {
-            Some(value) => Some(Value::Boolean(value != 0)),
-            None => None,
-        },
-        Type::Function(_, _) => match vm.stack.pop() {
-            Some(_) => Some(Value::Function),
-            None => None,
-        },
-        Type::Integer => match vm.stack.pop() {
-            Some(value) => Some(Value::Integer(value)),
-            None => None,
-        },
         Type::Tuple(types) => {
             let mut values = Vec::new();
             for i in 0..types.len() {
@@ -749,12 +709,16 @@ fn to_typed_value(vm: &mut vm::VirtualMachine, typ: &Type) -> Option<Value> {
                 }
             }
             values.reverse();
-            Some(Value::Tuple(values))
+            Some(vm::Value::Tuple(values))
         }
+        _ => match vm.stack.pop() {
+            Some(value) => Some(value),
+            None => None,
+        },
     }
 }
 
-pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<Value, InterpreterError> {
+pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<vm::Value, InterpreterError> {
     match typecheck(ast, &mut vm.type_env) {
         Ok(typed_ast) => {
             let mut instr = Vec::new();
@@ -776,7 +740,7 @@ pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<Value, Int
                         col: usize::max_value(),
                     }),
                 },
-                Err(e) => Err(e),
+                Err(err) => Err(err),
             }
         }
         Err(err) => {
@@ -790,9 +754,9 @@ mod tests {
     use crate::interpreter;
     use crate::interpreter::type_of;
     use crate::interpreter::Type;
-    use crate::interpreter::Value;
     use crate::parser;
     use crate::vm;
+    use crate::vm::Value;
     use std::collections::HashMap;
 
     macro_rules! eval {
