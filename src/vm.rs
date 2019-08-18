@@ -117,7 +117,6 @@ pub struct VirtualMachine {
     pub ip: usize,
     pub stack: Vec<Value>,
     pub callstack: Vec<(Function, usize, usize)>,
-    pub fconsts: Vec<Function>,
 
     pub env: HashMap<String, Value>,
     pub type_env: HashMap<String, interpreter::Type>,
@@ -361,7 +360,6 @@ impl VirtualMachine {
             ip: 0,
             stack: Vec::new(),
             callstack: Vec::new(),
-            fconsts: Vec::new(),
             env: HashMap::new(),
             type_env: HashMap::new(),
             line: usize::max_value(),
