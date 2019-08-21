@@ -4,17 +4,63 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum Type {
+    Any,
     Boolean,
     Function(Box<Type>, Box<Type>),
     Integer,
     Tuple(Vec<Type>),
 }
 
+impl PartialEq for Type {
+    fn eq(&self, other: &Type) -> bool {
+        if let Type::Any = other {
+            return true;
+        }
+        match self {
+            Type::Any => true,
+            Type::Boolean => {
+                if let Type::Boolean = other {
+                    true
+                } else {
+                    false
+                }
+            }
+            Type::Function(param, body) => {
+                if let Type::Function(other_param, other_body) = other {
+                    param == other_param && body == other_body
+                } else {
+                    false
+                }
+            }
+            Type::Integer => {
+                if let Type::Integer = other {
+                    true
+                } else {
+                    false
+                }
+            }
+            Type::Tuple(elements) => {
+                if let Type::Tuple(other_elements) = other {
+                    for i in 0..elements.len() {
+                        if elements[i] != other_elements[i] {
+                            return false;
+                        }
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+    }
+}
+
 impl fmt::Display for Type {
     fn fmt<'a>(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Type::Any => write!(f, "any"),
             Type::Boolean => write!(f, "boolean"),
             Type::Function(param, body) => write!(f, "{} -> {}", param, body),
             Type::Integer => write!(f, "integer"),
@@ -727,15 +773,24 @@ fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
                     match type_from_operator(op) {
                         Some(typ) => return Some(typ),
                         None => match &**rhs {
-                            parser::AST::BinaryOp(op, _, _) => {
-                                return type_from_operator(op);
-                            }
+                            parser::AST::BinaryOp(op, _, _) => match type_from_operator(op) {
+                                Some(typ) => return Some(typ),
+                                None => match op {
+                                    parser::Operator::Equal | parser::Operator::NotEqual => {
+                                        return Some(Type::Any)
+                                    }
+                                    _ => return None,
+                                },
+                            },
                             parser::AST::UnaryOp(op, _) => {
                                 return type_from_operator(op);
                             }
-                            _ => {
-                                return None;
-                            }
+                            _ => match op {
+                                parser::Operator::Equal | parser::Operator::NotEqual => {
+                                    return Some(Type::Any)
+                                }
+                                _ => return None,
+                            },
                         },
                     }
                 }
@@ -745,15 +800,24 @@ fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
                     match type_from_operator(op) {
                         Some(typ) => return Some(typ),
                         None => match &**lhs {
-                            parser::AST::BinaryOp(op, _, _) => {
-                                return type_from_operator(op);
-                            }
+                            parser::AST::BinaryOp(op, _, _) => match type_from_operator(op) {
+                                Some(typ) => return Some(typ),
+                                None => match op {
+                                    parser::Operator::Equal | parser::Operator::NotEqual => {
+                                        return Some(Type::Any)
+                                    }
+                                    _ => return None,
+                                },
+                            },
                             parser::AST::UnaryOp(op, _) => {
                                 return type_from_operator(op);
                             }
-                            _ => {
-                                return None;
-                            }
+                            _ => match op {
+                                parser::Operator::Equal | parser::Operator::NotEqual => {
+                                    return Some(Type::Any)
+                                }
+                                _ => return None,
+                            },
                         },
                     }
                 }
@@ -1155,6 +1219,33 @@ mod tests {
              (f 2) 1;",
             Integer,
             3
+        );
+        typeinfer!("fn(x, y) -> x == y end", "x", Type::Any);
+        typecheck!("fn(x, y) -> x == y end", "(any, any) -> boolean");
+        eval!(
+            "let f := fn (x, y) -> x == y end;
+             f (1, 2)",
+            Boolean,
+            false
+        );
+        eval!(
+            "let f := fn (x, y) -> x == y end;
+             f (1, false)",
+            Boolean,
+            false
+        );
+        eval!(
+            "let f := fn (x, y) -> x == y end;
+             f (1, 1)",
+            Boolean,
+            true
+        );
+        eval!(
+            "let f := fn (x, y) -> x == y end;
+             let g := fn (x, y) -> x == y end;
+             f (f, g)",
+            Boolean,
+            false
         );
     }
 }

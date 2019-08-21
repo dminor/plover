@@ -18,6 +18,5 @@ and wetlands in the Americas.
 
 TODO
 ----
-* Type inference for polymorphic functions (e.g. fn (x, y) -> x == y end is not currently type checkable)
 * Implement Lists
 * Implement Strings
