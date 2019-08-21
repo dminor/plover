@@ -829,6 +829,22 @@ fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
         }
         parser::AST::Boolean(_) => Some(Type::Boolean),
         parser::AST::Function(_, body) => typeinfer(id, body),
+        parser::AST::If(conds, els) => {
+            for cond in conds {
+                match typeinfer(id, &cond.0) {
+                    Some(typ) => return Some(typ),
+                    None => {}
+                }
+                match typeinfer(id, &cond.1) {
+                    Some(typ) => return Some(typ),
+                    None => {}
+                }
+            }
+            match typeinfer(id, els) {
+                Some(typ) => return Some(typ),
+                None => return None,
+            }
+        }
         parser::AST::Integer(_) => Some(Type::Integer),
         parser::AST::Let(_, value) => typeinfer(id, value),
         parser::AST::Program(expressions) => {
@@ -1246,6 +1262,21 @@ mod tests {
              f (f, g)",
             Boolean,
             false
+        );
+        typeinfer!(
+            "let main := fn (n, sum) ->
+                 if n == 1000 then
+                     sum
+                 else
+                     if (n % 3 == 0) || (n % 5 == 0) then
+                         main(n + 1, sum + n)
+                     else
+                         main(n + 1, sum)
+                     end
+                 end
+             end",
+            "n",
+            Type::Integer
         );
     }
 }
