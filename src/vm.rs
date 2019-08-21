@@ -80,14 +80,25 @@ impl fmt::Display for Opcode {
     }
 }
 
-pub struct Function {
-    ip: usize,
+#[derive(Clone, Debug, PartialEq)]
+pub struct Environment {
+    pub values: HashMap<String, Value>,
+    pub types: HashMap<String, interpreter::Type>,
+}
+
+impl Environment {
+    pub fn new() -> Environment {
+        Environment {
+            values: HashMap::new(),
+            types: HashMap::new(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Boolean(bool),
-    Function(usize),
+    Function(usize, Environment),
     Integer(i64),
     Tuple(Vec<Value>),
 }
@@ -96,7 +107,7 @@ impl fmt::Display for Value {
     fn fmt<'a>(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Value::Boolean(b) => write!(f, "{}", b),
-            Value::Function(ip) => write!(f, "(lambda @{})", ip),
+            Value::Function(ip, _) => write!(f, "(lambda @{})", ip),
             Value::Integer(v) => write!(f, "{}", v),
             Value::Tuple(elements) => {
                 write!(f, "(")?;
@@ -116,10 +127,9 @@ pub struct VirtualMachine {
     pub instructions: Vec<Opcode>,
     pub ip: usize,
     pub stack: Vec<Value>,
-    pub callstack: Vec<(Function, usize, usize)>,
+    pub callstack: Vec<(usize, Environment, usize, usize)>,
 
-    pub env: HashMap<String, Value>,
-    pub type_env: HashMap<String, interpreter::Type>,
+    pub env: Environment,
 
     pub line: usize,
     pub col: usize,
@@ -148,7 +158,7 @@ impl VirtualMachine {
                     _ => unreachable!(),
                 },
                 Opcode::Arg(offset) => match self.callstack.last() {
-                    Some((_, sp, _)) => {
+                    Some((_, _, sp, _)) => {
                         self.stack.push(self.stack[*sp - offset].clone());
                     }
                     None => err!(self, "Call stack underflow."),
@@ -157,11 +167,11 @@ impl VirtualMachine {
                     self.stack.push(Value::Boolean(*b));
                 }
                 Opcode::Call => match self.stack.pop() {
-                    Some(Value::Function(ip)) => {
+                    Some(Value::Function(ip, env)) => {
                         let return_ip = self.ip;
                         self.ip = ip;
                         self.callstack
-                            .push((Function { ip: ip }, self.stack.len() - 1, return_ip));
+                            .push((ip, env, self.stack.len() - 1, return_ip));
                         continue;
                     }
                     _ => unreachable!(),
@@ -195,14 +205,31 @@ impl VirtualMachine {
                     _ => unreachable!(),
                 },
                 Opcode::Fconst(ip) => {
-                    self.stack.push(Value::Function(*ip));
-                }
-                Opcode::GetEnv(id) => match self.env.get(id) {
-                    Some(x) => {
-                        self.stack.push(x.clone());
+                    let len = self.callstack.len();
+                    let env;
+                    if len > 0 {
+                        env = self.callstack[len - 1].1.clone();
+                    } else {
+                        env = self.env.clone();
                     }
-                    None => err!(self, "Unknown identifier."),
-                },
+                    // TODO: upvalues need to be placed in environment as well
+                    self.stack.push(Value::Function(*ip, env));
+                }
+                Opcode::GetEnv(id) => {
+                    let len = self.callstack.len();
+                    let values;
+                    if len > 0 {
+                        values = &self.callstack[len - 1].1.values;
+                    } else {
+                        values = &self.env.values;
+                    }
+                    match values.get(id) {
+                        Some(x) => {
+                            self.stack.push(x.clone());
+                        }
+                        None => err!(self, "Unknown identifier."),
+                    }
+                }
                 Opcode::Greater => match self.stack.pop() {
                     Some(Value::Integer(x)) => match self.stack.pop() {
                         Some(Value::Integer(y)) => {
@@ -305,7 +332,7 @@ impl VirtualMachine {
                     _ => unreachable!(),
                 },
                 Opcode::Ret(n) => match self.callstack.pop() {
-                    Some((_, sp, ip)) => {
+                    Some((_, _, sp, ip)) => {
                         self.stack.drain(sp..sp + n);
                         self.ip = ip;
                     }
@@ -321,7 +348,14 @@ impl VirtualMachine {
                 }
                 Opcode::SetEnv(id) => match self.stack.pop() {
                     Some(x) => {
-                        self.env.insert(id.to_string(), x);
+                        let len = self.callstack.len();
+                        let values;
+                        if len > 0 {
+                            values = &mut self.callstack[len - 1].1.values;
+                        } else {
+                            values = &mut self.env.values;
+                        }
+                        values.insert(id.to_string(), x);
                     }
                     _ => unreachable!(),
                 },
@@ -360,8 +394,7 @@ impl VirtualMachine {
             ip: 0,
             stack: Vec::new(),
             callstack: Vec::new(),
-            env: HashMap::new(),
-            type_env: HashMap::new(),
+            env: Environment::new(),
             line: usize::max_value(),
             col: usize::max_value(),
         }

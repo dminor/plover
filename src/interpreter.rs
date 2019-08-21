@@ -719,7 +719,7 @@ fn to_typed_value(vm: &mut vm::VirtualMachine, typ: &Type) -> Option<vm::Value> 
 }
 
 pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<vm::Value, InterpreterError> {
-    match typecheck(ast, &mut vm.type_env) {
+    match typecheck(ast, &mut vm.env.types) {
         Ok(typed_ast) => {
             let mut instr = Vec::new();
             let ids = HashMap::new();
