@@ -738,7 +738,7 @@ fn function(ps: ParseState) -> ParseResult {
                         ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
                     }
                 } else {
-                    ParseResult::Error("Expected is.".to_string(), lps.line, lps.col)
+                    ParseResult::Error("Expected ->.".to_string(), lps.line, lps.col)
                 }
             }
             ParseResult::NotMatched(ps) => {
