@@ -21,7 +21,7 @@ pub enum Opcode {
     Div,
     Dup,
     Equal,
-    Fconst(usize),
+    Fconst(usize, HashMap<String, (usize, interpreter::Type)>),
     GetEnv(String),
     Greater,
     GreaterEqual,
@@ -55,7 +55,7 @@ impl fmt::Display for Opcode {
             Opcode::Div => write!(f, "div"),
             Opcode::Dup => write!(f, "dup"),
             Opcode::Equal => write!(f, "eq"),
-            Opcode::Fconst(ip) => write!(f, "lambda @{}", ip),
+            Opcode::Fconst(ip, _) => write!(f, "lambda @{}", ip),
             Opcode::GetEnv(id) => write!(f, "getenv {}", id),
             Opcode::Greater => write!(f, "gt"),
             Opcode::GreaterEqual => write!(f, "ge"),
@@ -204,15 +204,26 @@ impl VirtualMachine {
                     },
                     _ => unreachable!(),
                 },
-                Opcode::Fconst(ip) => {
+                Opcode::Fconst(ip, upvalues) => {
                     let len = self.callstack.len();
-                    let env;
+                    let mut env;
                     if len > 0 {
                         env = self.callstack[len - 1].1.clone();
                     } else {
                         env = self.env.clone();
                     }
-                    // TODO: upvalues need to be placed in environment as well
+                    for upvalue in upvalues {
+                        match self.callstack.last() {
+                            Some((_, _, sp, _)) => {
+                                let id = upvalue.0;
+                                let offset = (upvalue.1).0;
+                                let value = self.stack[*sp - offset].clone();
+                                env.values.insert(id.to_string(), value);
+                                env.types.insert(id.to_string(), (upvalue.1).1.clone());
+                            }
+                            None => {}
+                        }
+                    }
                     self.stack.push(Value::Function(*ip, env));
                 }
                 Opcode::GetEnv(id) => {

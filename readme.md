@@ -1,5 +1,5 @@
 Sora
-======
+====
 
 Sora is a little language written as a exercise to learn more about type
 checking and type inference. My first language
@@ -18,7 +18,6 @@ and wetlands in the Americas.
 
 TODO
 ----
-* Static scoping and lexical closures
 * Type inference for polymorphic functions (e.g. fn (x, y) -> x == y end is not currently type checkable)
 * Implement Lists
 * Implement Strings

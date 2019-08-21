@@ -82,6 +82,62 @@ impl fmt::Display for InterpreterError {
 
 impl Error for InterpreterError {}
 
+fn find_upvalues(
+    ast: &TypedAST,
+    ids: &mut HashMap<String, usize>,
+    upvalues: &mut HashMap<String, (usize, Type)>,
+) {
+    match ast {
+        TypedAST::BinaryOp(_, _, lhs, rhs) => {
+            find_upvalues(lhs, ids, upvalues);
+            find_upvalues(rhs, ids, upvalues);
+        }
+        TypedAST::Call(fun, args) => {
+            find_upvalues(fun, ids, upvalues);
+            find_upvalues(args, ids, upvalues);
+        }
+        TypedAST::Function(param, body) => {
+            let mut local_ids = ids.clone();
+            find_upvalues(param, &mut local_ids, upvalues);
+            find_upvalues(body, &mut local_ids, upvalues);
+        }
+        TypedAST::If(conds, els) => {
+            for cond in conds {
+                find_upvalues(&cond.0, ids, upvalues);
+                find_upvalues(&cond.1, ids, upvalues);
+            }
+            find_upvalues(&els, ids, upvalues);
+        }
+        TypedAST::Identifier(typ, id) => match ids.get(id) {
+            Some(offset) => {
+                upvalues.insert(id.to_string(), (*offset, typ.clone()));
+            }
+            None => {}
+        },
+        TypedAST::Let(_, id, value) => {
+            // Shadow id while it is in scope
+            if let Some(_) = ids.get(id) {
+                ids.remove(id);
+            }
+            find_upvalues(value, ids, upvalues);
+        }
+        TypedAST::Program(_, expressions) => {
+            for expression in expressions {
+                find_upvalues(expression, ids, upvalues);
+            }
+        }
+        TypedAST::Tuple(_, elements) => {
+            for element in elements {
+                find_upvalues(element, ids, upvalues);
+            }
+        }
+        TypedAST::UnaryOp(_, _, ast) => {
+            find_upvalues(ast, ids, upvalues);
+        }
+        _ => {}
+    }
+}
+
 fn generate(
     ast: &TypedAST,
     vm: &mut vm::VirtualMachine,
@@ -182,11 +238,25 @@ fn generate(
                 }
                 _ => unreachable!(),
             }
-            generate(body, vm, &mut fn_instr, &local_ids);
+
+            // We find the "upvalues", function arguments from enclosing
+            // functions that are used in this function and place them in the
+            // environment instead of retrieving them from the stack.
+            let mut upvalues = HashMap::new();
+            let mut upvalue_ids = ids.clone();
+            find_upvalues(body, &mut upvalue_ids, &mut upvalues);
+            for upvalue in &upvalues {
+                let id = upvalue.0;
+                if let Some(_) = ids.get(id) {
+                    local_ids.remove(id);
+                }
+            }
+
+            generate(&body, vm, &mut fn_instr, &local_ids);
             fn_instr.push(vm::Opcode::Ret(count - 1));
             let ip = vm.instructions.len();
             vm.instructions.extend(fn_instr);
-            instr.push(vm::Opcode::Fconst(ip));
+            instr.push(vm::Opcode::Fconst(ip, upvalues));
         }
         TypedAST::If(conds, els) => {
             let start_ip = instr.len();
@@ -1077,6 +1147,12 @@ mod tests {
             "let t := 1;
              let f := fn x -> let t := 2; x + t end;
              f 1;",
+            Integer,
+            3
+        );
+        eval!(
+            "let f := fn t -> fn x -> x + t end end;
+             (f 2) 1;",
             Integer,
             3
         );
