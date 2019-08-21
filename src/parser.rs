@@ -1,6 +1,7 @@
 use std::fmt;
 
 /*
+program        -> expression ( ";" ( ";" expression )* )?
 expression     -> "let" IDENTIFIER ":=" expression
                   | conditional
 conditional    -> "if" equality "then" expression
@@ -14,8 +15,9 @@ multiplication -> unary ( ( "/" | "*" | "|" | "mod" | "and" ) unary )*
 unary          -> ( "~" | "-" ) unary | call
 call           -> value value | value
 value          -> IDENTIFIER | INTEGER | STRING | "false" | "true"
+                  | "(" expression "," ( expression )* ")"
                   | "(" expression ")" | "[" ( expression )* "]"
-                  | "fn" ( IDENTIFIER ,? )* -> expression end
+                  | "fn" ( IDENTIFIER ","? )* -> program end
 */
 
 macro_rules! binary_op {
@@ -356,6 +358,7 @@ pub enum AST {
     If(Vec<(AST, AST)>, Box<AST>),
     Integer(i64),
     Let(Box<AST>, Box<AST>),
+    Program(Vec<AST>),
     Tuple(Vec<AST>),
     UnaryOp(Operator, Box<AST>),
     None,
@@ -378,6 +381,21 @@ impl fmt::Display for AST {
             }
             AST::Integer(n) => write!(f, "{}:Integer", n),
             AST::Let(id, value) => write!(f, "(define {} {})", id, value),
+            AST::Program(expressions) => {
+                if expressions.len() > 1 {
+                    write!(f, "(")?;
+                }
+                for i in 0..expressions.len() {
+                    write!(f, "{}", expressions[i])?;
+                    if i + 1 != expressions.len() {
+                        write!(f, " ")?;
+                    }
+                }
+                if expressions.len() > 1 {
+                    write!(f, ")")?;
+                }
+                Ok(())
+            }
             AST::Tuple(elements) => {
                 write!(f, "(")?;
                 for i in 0..elements.len() {
@@ -405,6 +423,42 @@ pub struct ParseState<'a> {
     chars: std::iter::Peekable<std::str::Chars<'a>>,
     line: usize,
     col: usize,
+}
+
+fn program(ps: ParseState) -> ParseResult {
+    let mut lps = ps.clone();
+    lps = skip!(lps, whitespace);
+    let mut expressions = Vec::new();
+    loop {
+        lps = skip!(lps, whitespace);
+        match expression(lps) {
+            ParseResult::Matched(expression, ps) => {
+                lps = ps;
+                expressions.push(expression);
+            }
+            ParseResult::NotMatched(ps) => {
+                lps = ps;
+                break;
+            }
+            ParseResult::Error(err, line, col) => {
+                return ParseResult::Error(err, line, col);
+            }
+        }
+        lps = skip!(lps, whitespace);
+        if let Some(';') = lps.chars.peek() {
+            lps.chars.next();
+            if let None = lps.chars.next() {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    if expressions.len() > 0 {
+        ParseResult::Matched(AST::Program(expressions), lps)
+    } else {
+        ParseResult::Error("Expected expression.".to_string(), lps.line, lps.col)
+    }
 }
 
 fn expression(ps: ParseState) -> ParseResult {
@@ -666,7 +720,7 @@ fn function(ps: ParseState) -> ParseResult {
             ParseResult::Matched(param, ps) => {
                 lps = skip!(ps, whitespace);
                 if arrow!(lps) {
-                    match expression(lps) {
+                    match program(lps) {
                         ParseResult::Matched(body, ps) => {
                             lps = ps;
                             if let Some(_) = expect!(lps, "end") {
@@ -836,7 +890,7 @@ pub fn parse(src: &str) -> ParseResult {
         col: usize::max_value(),
     };
     ps = skip!(ps, whitespace);
-    expression(ps)
+    program(ps)
 }
 
 #[cfg(test)]
@@ -953,6 +1007,20 @@ mod tests {
         parse!(
             "let t := (1, 2, 3)",
             "(define t:Identifier (1:Integer, 2:Integer, 3:Integer):Tuple)"
+        );
+        parse!(
+            "let x := 1;
+             let y := 2",
+            "((define x:Identifier 1:Integer) (define y:Identifier 2:Integer))"
+        );
+        parse!(
+            "let x := 1;
+             let y := 2;",
+            "((define x:Identifier 1:Integer) (define y:Identifier 2:Integer))"
+        );
+        parse!(
+            "let f := fn x -> let t := 2; x + t end",
+            "(define f:Identifier (fn x:Identifier ((define t:Identifier 2:Integer) (+ x:Identifier t:Identifier))))"
         );
     }
 }

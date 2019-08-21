@@ -41,6 +41,7 @@ pub enum TypedAST {
     If(Vec<(TypedAST, TypedAST)>, Box<TypedAST>),
     Integer(i64),
     Let(Type, String, Box<TypedAST>),
+    Program(Type, Vec<TypedAST>),
     Tuple(Type, Vec<TypedAST>),
     UnaryOp(Type, parser::Operator, Box<TypedAST>),
 }
@@ -50,6 +51,7 @@ fn type_of(ast: &TypedAST) -> Type {
         TypedAST::BinaryOp(typ, _, _, _)
         | TypedAST::Identifier(typ, _)
         | TypedAST::Let(typ, _, _)
+        | TypedAST::Program(typ, _)
         | TypedAST::Tuple(typ, _)
         | TypedAST::UnaryOp(typ, _, _) => typ.clone(),
         TypedAST::Boolean(_) => Type::Boolean,
@@ -223,6 +225,14 @@ fn generate(
             generate(&value, vm, instr, ids);
             instr.push(vm::Opcode::Dup);
             instr.push(vm::Opcode::SetEnv(id.to_string()));
+        }
+        TypedAST::Program(_, expressions) => {
+            for i in 0..expressions.len() {
+                generate(&expressions[i], vm, instr, ids);
+                if i + 1 != expressions.len() {
+                    instr.push(vm::Opcode::Pop);
+                }
+            }
         }
         TypedAST::Tuple(_, elements) => {
             for element in elements {
@@ -539,6 +549,23 @@ fn typecheck(
                 col: usize::max_value(),
             }),
         },
+        parser::AST::Program(expressions) => {
+            let mut typed_expressions = Vec::new();
+            for expression in expressions {
+                match typecheck(&expression, ids) {
+                    Ok(typed_expression) => {
+                        typed_expressions.push(typed_expression);
+                    }
+                    Err(err) => {
+                        return Err(err);
+                    }
+                }
+            }
+            match typed_expressions.last() {
+                Some(expr) => Ok(TypedAST::Program(type_of(expr), typed_expressions)),
+                None => unreachable!(),
+            }
+        }
         parser::AST::Tuple(elements) => {
             let mut types = Vec::new();
             let mut typed_elements = Vec::new();
@@ -670,6 +697,15 @@ fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
         parser::AST::Function(_, body) => typeinfer(id, body),
         parser::AST::Integer(_) => Some(Type::Integer),
         parser::AST::Let(_, value) => typeinfer(id, value),
+        parser::AST::Program(expressions) => {
+            for expression in expressions {
+                match typeinfer(id, expression) {
+                    Some(typ) => return Some(typ),
+                    None => {}
+                }
+            }
+            None
+        }
         parser::AST::Tuple(elements) => {
             for element in elements {
                 match typeinfer(id, element) {
@@ -1029,5 +1065,20 @@ mod tests {
         typecheck!("let x := (1, false)", "(integer, boolean)");
         eval!("let x := 42", Integer, 42);
         eval!("let f := fn x -> x + 1 end 1", Integer, 2);
+        eval!(
+            "let t := 1;
+             let f := fn x -> x + t end;
+             let t := 2;
+             f 1;",
+            Integer,
+            2
+        );
+        eval!(
+            "let t := 1;
+             let f := fn x -> let t := 2; x + t end;
+             f 1;",
+            Integer,
+            3
+        );
     }
 }
