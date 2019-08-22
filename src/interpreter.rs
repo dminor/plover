@@ -443,8 +443,13 @@ fn typecheck(
                     parser::Operator::Not => unreachable!(),
                     parser::Operator::Equal | parser::Operator::NotEqual => {
                         if type_of(&typed_rhs) != type_of(&typed_lhs) {
+                            let mut err = "Type error: type mismatch between ".to_string();
+                            err.push_str(&type_of(&typed_lhs).to_string());
+                            err.push_str(" and ");
+                            err.push_str(&type_of(&typed_rhs).to_string());
+                            err.push('.');
                             Err(InterpreterError {
-                                err: "Type error: type mismatch.".to_string(),
+                                err: err,
                                 line: usize::max_value(),
                                 col: usize::max_value(),
                             })
@@ -569,11 +574,16 @@ fn typecheck(
         }
         parser::AST::Identifier(s) => match ids.get(s) {
             Some(typ) => Ok(TypedAST::Identifier(typ.clone(), s.clone())),
-            None => Err(InterpreterError {
-                err: "Type error: could not infer type for identifier.".to_string(),
-                line: usize::max_value(),
-                col: usize::max_value(),
-            }),
+            None => {
+                let mut err = "Type error: could not infer type for identifier: ".to_string();
+                err.push_str(s);
+                err.push('.');
+                return Err(InterpreterError {
+                    err: err,
+                    line: usize::max_value(),
+                    col: usize::max_value(),
+                });
+            }
         },
         parser::AST::If(conds, els) => {
             let mut first = true;
@@ -1097,8 +1107,14 @@ mod tests {
         evalfails!("1 && true", "Type error: expected boolean.");
         evalfails!("~1", "Type error: expected boolean.");
         evalfails!("-false", "Type error: expected integer.");
-        evalfails!("1 == true", "Type error: type mismatch.");
-        evalfails!("1 ~= false", "Type error: type mismatch.");
+        evalfails!(
+            "1 == true",
+            "Type error: type mismatch between integer and boolean."
+        );
+        evalfails!(
+            "1 ~= false",
+            "Type error: type mismatch between integer and boolean."
+        );
         evalfails!("0 <= false", "Type error: expected integer.");
         eval!("(1 + 2) * 5", Integer, 15);
         eval!("1 + 2 * 5", Integer, 11);
@@ -1277,6 +1293,20 @@ mod tests {
              end",
             "n",
             Type::Integer
+        );
+        typecheck!(
+            "fn (n, sum) ->
+                 if n == 1000 then
+                     sum
+                 else
+                     if (n % 3 == 0) || (n % 5 == 0) then
+                         main(n + 1, sum + n)
+                     else
+                         main(n + 1, sum)
+                     end
+                 end
+             end",
+            "(integer, integer) -> integer"
         );
     }
 }
