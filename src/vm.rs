@@ -161,7 +161,7 @@ impl VirtualMachine {
                     Some((_, _, sp, _)) => {
                         self.stack.push(self.stack[*sp - offset].clone());
                     }
-                    None => err!(self, "Call stack underflow."),
+                    None => unreachable!(),
                 },
                 Opcode::Bconst(b) => {
                     self.stack.push(Value::Boolean(*b));
@@ -238,7 +238,7 @@ impl VirtualMachine {
                         Some(x) => {
                             self.stack.push(x.clone());
                         }
-                        None => err!(self, "Unknown identifier."),
+                        None => unreachable!(),
                     }
                 }
                 Opcode::Greater => match self.stack.pop() {
@@ -347,11 +347,11 @@ impl VirtualMachine {
                         self.stack.drain(sp..sp + n);
                         self.ip = ip;
                     }
-                    None => err!(self, "Call stack underflow."),
+                    None => unreachable!(),
                 },
                 Opcode::Rot => {
                     if self.stack.len() < 3 {
-                        err!(self, "Stack underflow.")
+                        unreachable!();
                     }
                     if let Some(a) = self.stack.pop() {
                         self.stack.insert(self.stack.len() - 2, a);

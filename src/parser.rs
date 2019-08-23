@@ -31,7 +31,7 @@ macro_rules! binary_op {
                     lps = skip!(lps, whitespace);
                     match $value(lps) {
                         ParseResult::Matched(rhs, ps) => {
-                            lhs = AST::BinaryOp(op, Box::new(lhs), Box::new(rhs));
+                            lhs = AST::BinaryOp(op, Box::new(lhs), Box::new(rhs), ps.line, ps.col);
                             lps = ps;
                         }
                         ParseResult::NotMatched(ps) => {
@@ -59,16 +59,16 @@ macro_rules! addition_operator {
         match $ps.chars.peek() {
             Some(c) => match c {
                 '+' => {
-                    $ps.chars.next();
+                    $ps.next();
                     Operator::Plus
                 }
                 '-' => {
-                    $ps.chars.next();
+                    $ps.next();
                     Operator::Minus
                 }
                 '|' => {
-                    $ps.chars.next();
-                    match $ps.chars.next() {
+                    $ps.next();
+                    match $ps.next() {
                         Some('|') => Operator::Or,
                         _ => {
                             return ParseResult::Error(
@@ -95,8 +95,8 @@ macro_rules! arrow {
         match $ps.chars.peek() {
             Some(c) => match c {
                 '-' => {
-                    $ps.chars.next();
-                    match $ps.chars.next() {
+                    $ps.next();
+                    match $ps.next() {
                         Some('>') => true,
                         _ => {
                             return ParseResult::Error(
@@ -119,8 +119,8 @@ macro_rules! assignment {
         match $ps.chars.peek() {
             Some(c) => match c {
                 ':' => {
-                    $ps.chars.next();
-                    match $ps.chars.next() {
+                    $ps.next();
+                    match $ps.next() {
                         Some('=') => true,
                         _ => {
                             return ParseResult::Error(
@@ -143,20 +143,20 @@ macro_rules! comparison_operator {
         match $ps.chars.peek() {
             Some(c) => match c {
                 '<' => {
-                    $ps.chars.next();
+                    $ps.next();
                     match $ps.chars.peek() {
                         Some('=') => {
-                            $ps.chars.next();
+                            $ps.next();
                             Operator::LessEqual
                         }
                         _ => Operator::Less,
                     }
                 }
                 '>' => {
-                    $ps.chars.next();
+                    $ps.next();
                     match $ps.chars.peek() {
                         Some('=') => {
-                            $ps.chars.next();
+                            $ps.next();
                             Operator::GreaterEqual
                         }
                         _ => Operator::Greater,
@@ -178,8 +178,8 @@ macro_rules! equality_operator {
         match $ps.chars.peek() {
             Some(c) => match c {
                 '~' => {
-                    $ps.chars.next();
-                    match $ps.chars.next() {
+                    $ps.next();
+                    match $ps.next() {
                         Some('=') => Operator::NotEqual,
                         _ => {
                             return ParseResult::Error(
@@ -191,8 +191,8 @@ macro_rules! equality_operator {
                     }
                 }
                 '=' => {
-                    $ps.chars.next();
-                    match $ps.chars.next() {
+                    $ps.next();
+                    match $ps.next() {
                         Some('=') => Operator::Equal,
                         _ => {
                             return ParseResult::Error(
@@ -222,7 +222,7 @@ macro_rules! expect {
                 Some(c) => {
                     if c.is_alphabetic() {
                         s.push(*c);
-                        $ps.chars.next();
+                        $ps.next();
                     } else {
                         break;
                     }
@@ -247,20 +247,20 @@ macro_rules! multiplication_operator {
         match $ps.chars.peek() {
             Some(c) => match c {
                 '*' => {
-                    $ps.chars.next();
+                    $ps.next();
                     Operator::Multiply
                 }
                 '/' => {
-                    $ps.chars.next();
+                    $ps.next();
                     Operator::Divide
                 }
                 '%' => {
-                    $ps.chars.next();
+                    $ps.next();
                     Operator::Mod
                 }
                 '&' => {
-                    $ps.chars.next();
-                    match $ps.chars.next() {
+                    $ps.next();
+                    match $ps.next() {
                         Some('&') => Operator::And,
                         _ => {
                             return ParseResult::Error(
@@ -350,38 +350,38 @@ impl fmt::Display for Operator {
 }
 
 pub enum AST {
-    BinaryOp(Operator, Box<AST>, Box<AST>),
-    Boolean(bool),
-    Call(Box<AST>, Box<AST>),
-    Function(Box<AST>, Box<AST>),
-    Identifier(String),
-    If(Vec<(AST, AST)>, Box<AST>),
-    Integer(i64),
-    Let(Box<AST>, Box<AST>),
-    Program(Vec<AST>),
-    Tuple(Vec<AST>),
-    UnaryOp(Operator, Box<AST>),
+    BinaryOp(Operator, Box<AST>, Box<AST>, usize, usize),
+    Boolean(bool, usize, usize),
+    Call(Box<AST>, Box<AST>, usize, usize),
+    Function(Box<AST>, Box<AST>, usize, usize),
+    Identifier(String, usize, usize),
+    If(Vec<(AST, AST)>, Box<AST>, usize, usize),
+    Integer(i64, usize, usize),
+    Let(Box<AST>, Box<AST>, usize, usize),
+    Program(Vec<AST>, usize, usize),
+    Tuple(Vec<AST>, usize, usize),
+    UnaryOp(Operator, Box<AST>, usize, usize),
     None,
 }
 
 impl fmt::Display for AST {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            AST::BinaryOp(op, lhs, rhs) => write!(f, "({} {} {})", op, lhs, rhs),
-            AST::Boolean(b) => write!(f, "{}:Boolean", b),
-            AST::Call(fun, args) => write!(f, "(apply {} {})", fun, args),
-            AST::Function(param, body) => write!(f, "(fn {} {})", param, body),
-            AST::Identifier(id) => write!(f, "{}:Identifier", id),
-            AST::If(conds, els) => {
+            AST::BinaryOp(op, lhs, rhs, _, _) => write!(f, "({} {} {})", op, lhs, rhs),
+            AST::Boolean(b, _, _) => write!(f, "{}:Boolean", b),
+            AST::Call(fun, args, _, _) => write!(f, "(apply {} {})", fun, args),
+            AST::Function(param, body, _, _) => write!(f, "(fn {} {})", param, body),
+            AST::Identifier(id, _, _) => write!(f, "{}:Identifier", id),
+            AST::If(conds, els, _, _) => {
                 write!(f, "(if ")?;
                 for cond in conds {
                     write!(f, "(cond {} {}) ", cond.0, cond.1)?;
                 }
                 write!(f, "(else {}))", els)
             }
-            AST::Integer(n) => write!(f, "{}:Integer", n),
-            AST::Let(id, value) => write!(f, "(define {} {})", id, value),
-            AST::Program(expressions) => {
+            AST::Integer(n, _, _) => write!(f, "{}:Integer", n),
+            AST::Let(id, value, _, _) => write!(f, "(define {} {})", id, value),
+            AST::Program(expressions, _, _) => {
                 if expressions.len() > 1 {
                     write!(f, "(")?;
                 }
@@ -396,7 +396,7 @@ impl fmt::Display for AST {
                 }
                 Ok(())
             }
-            AST::Tuple(elements) => {
+            AST::Tuple(elements, _, _) => {
                 write!(f, "(")?;
                 for i in 0..elements.len() {
                     write!(f, "{}", elements[i])?;
@@ -406,7 +406,7 @@ impl fmt::Display for AST {
                 }
                 write!(f, "):Tuple")
             }
-            AST::UnaryOp(op, ast) => write!(f, "({} {})", op, ast),
+            AST::UnaryOp(op, ast, _, _) => write!(f, "({} {})", op, ast),
             AST::None => write!(f, "None"),
         }
     }
@@ -423,6 +423,23 @@ pub struct ParseState<'a> {
     chars: std::iter::Peekable<std::str::Chars<'a>>,
     line: usize,
     col: usize,
+}
+
+impl<'a> ParseState<'a> {
+    fn next(&mut self) -> Option<char> {
+        match self.chars.next() {
+            Some(c) => {
+                if c == '\n' {
+                    self.line += 1;
+                    self.col = 1;
+                } else {
+                    self.col += 1;
+                }
+                Some(c)
+            }
+            None => None,
+        }
+    }
 }
 
 fn program(ps: ParseState) -> ParseResult {
@@ -446,8 +463,8 @@ fn program(ps: ParseState) -> ParseResult {
         }
         lps = skip!(lps, whitespace);
         if let Some(';') = lps.chars.peek() {
-            lps.chars.next();
-            if let None = lps.chars.next() {
+            lps.next();
+            if let None = lps.next() {
                 break;
             }
         } else {
@@ -455,7 +472,7 @@ fn program(ps: ParseState) -> ParseResult {
         }
     }
     if expressions.len() > 0 {
-        ParseResult::Matched(AST::Program(expressions), lps)
+        ParseResult::Matched(AST::Program(expressions, ps.line, ps.col), lps)
     } else {
         ParseResult::Error("Expected expression.".to_string(), lps.line, lps.col)
     }
@@ -486,7 +503,12 @@ fn conditional(ps: ParseState) -> ParseResult {
                                                 lps = skip!(ps, whitespace);
                                                 if let Some(_) = expect!(lps, "end") {
                                                     return ParseResult::Matched(
-                                                        AST::If(conds, Box::new(els)),
+                                                        AST::If(
+                                                            conds,
+                                                            Box::new(els),
+                                                            lps.line,
+                                                            lps.col,
+                                                        ),
                                                         lps,
                                                     );
                                                 } else {
@@ -563,9 +585,10 @@ fn letexpr(ps: ParseState) -> ParseResult {
                     lps = skip!(ps, whitespace);
                     if assignment!(lps) {
                         match expression(lps) {
-                            ParseResult::Matched(value, ps) => {
-                                ParseResult::Matched(AST::Let(Box::new(id), Box::new(value)), ps)
-                            }
+                            ParseResult::Matched(value, ps) => ParseResult::Matched(
+                                AST::Let(Box::new(id), Box::new(value), ps.line, ps.col),
+                                ps,
+                            ),
                             ParseResult::NotMatched(ps) => ParseResult::Error(
                                 "Expected expression.".to_string(),
                                 ps.line,
@@ -611,11 +634,12 @@ fn unary(ps: ParseState) -> ParseResult {
     match lps.chars.peek() {
         Some(c) => match c {
             '~' => {
-                lps.chars.next();
+                lps.next();
                 match value(lps) {
-                    ParseResult::Matched(ast, ps) => {
-                        ParseResult::Matched(AST::UnaryOp(Operator::Not, Box::new(ast)), ps)
-                    }
+                    ParseResult::Matched(ast, ps) => ParseResult::Matched(
+                        AST::UnaryOp(Operator::Not, Box::new(ast), ps.line, ps.col),
+                        ps,
+                    ),
                     ParseResult::NotMatched(ps) => {
                         ParseResult::Error("Expected value.".to_string(), ps.line, ps.col)
                     }
@@ -623,11 +647,12 @@ fn unary(ps: ParseState) -> ParseResult {
                 }
             }
             '-' => {
-                lps.chars.next();
+                lps.next();
                 match value(lps) {
-                    ParseResult::Matched(ast, ps) => {
-                        ParseResult::Matched(AST::UnaryOp(Operator::Minus, Box::new(ast)), ps)
-                    }
+                    ParseResult::Matched(ast, ps) => ParseResult::Matched(
+                        AST::UnaryOp(Operator::Minus, Box::new(ast), ps.line, ps.col),
+                        ps,
+                    ),
                     ParseResult::NotMatched(ps) => {
                         ParseResult::Error("Expected value.".to_string(), ps.line, ps.col)
                     }
@@ -648,9 +673,10 @@ fn call(ps: ParseState) -> ParseResult {
         ParseResult::Matched(fun, ps) => {
             lps = skip!(ps, whitespace);
             match value(lps) {
-                ParseResult::Matched(args, ps) => {
-                    ParseResult::Matched(AST::Call(Box::new(fun), Box::new(args)), ps)
-                }
+                ParseResult::Matched(args, ps) => ParseResult::Matched(
+                    AST::Call(Box::new(fun), Box::new(args), ps.line, ps.col),
+                    ps,
+                ),
                 ParseResult::NotMatched(ps) => ParseResult::Matched(fun, ps),
                 ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
             }
@@ -682,7 +708,7 @@ fn whitespace(ps: ParseState) -> ParseResult {
             Some(c) => match c {
                 ' ' | '\n' => {
                     succeeded = true;
-                    lps.chars.next();
+                    lps.next();
                 }
                 _ => {
                     break;
@@ -704,8 +730,8 @@ fn boolean(ps: ParseState) -> ParseResult {
     let mut lps = ps.clone();
     match expect!(lps, "true", "false") {
         Some(s) => match &s[..] {
-            "true" => ParseResult::Matched(AST::Boolean(true), lps),
-            "false" => ParseResult::Matched(AST::Boolean(false), lps),
+            "true" => ParseResult::Matched(AST::Boolean(true, ps.line, ps.col), lps),
+            "false" => ParseResult::Matched(AST::Boolean(false, ps.line, ps.col), lps),
             _ => unreachable!(),
         },
         None => ParseResult::NotMatched(lps),
@@ -725,7 +751,12 @@ fn function(ps: ParseState) -> ParseResult {
                             lps = ps;
                             if let Some(_) = expect!(lps, "end") {
                                 ParseResult::Matched(
-                                    AST::Function(Box::new(param), Box::new(body)),
+                                    AST::Function(
+                                        Box::new(param),
+                                        Box::new(body),
+                                        lps.line,
+                                        lps.col,
+                                    ),
                                     lps,
                                 )
                             } else {
@@ -761,10 +792,10 @@ fn identifier(ps: ParseState) -> ParseResult {
                 if first && c.is_alphabetic() {
                     first = false;
                     s.push(*c);
-                    lps.chars.next();
+                    lps.next();
                 } else if !first && c.is_alphanumeric() {
                     s.push(*c);
-                    lps.chars.next();
+                    lps.next();
                 } else {
                     break;
                 }
@@ -777,7 +808,7 @@ fn identifier(ps: ParseState) -> ParseResult {
     if !s.is_empty() {
         match &s[..] {
             "if" | "else" | "elsif" | "end" | "fn" | "then" => ParseResult::NotMatched(lps),
-            _ => ParseResult::Matched(AST::Identifier(s), lps),
+            _ => ParseResult::Matched(AST::Identifier(s, ps.line, ps.col), lps),
         }
     } else {
         ParseResult::NotMatched(lps)
@@ -792,7 +823,7 @@ fn integer(ps: ParseState) -> ParseResult {
             Some(c) => {
                 if c.is_numeric() {
                     s.push(*c);
-                    lps.chars.next();
+                    lps.next();
                 } else {
                     break;
                 }
@@ -803,17 +834,17 @@ fn integer(ps: ParseState) -> ParseResult {
         }
     }
     match s.parse::<i64>() {
-        Ok(n) => ParseResult::Matched(AST::Integer(n), lps),
+        Ok(n) => ParseResult::Matched(AST::Integer(n, ps.line, ps.col), lps),
         _ => ParseResult::NotMatched(ps),
     }
 }
 
 fn parenthesized_expression(ps: ParseState) -> ParseResult {
     let mut lps = ps.clone();
-    if let Some('(') = lps.chars.next() {
+    if let Some('(') = lps.next() {
         match expression(lps) {
             ParseResult::Matched(expr, mut ps) => {
-                if let Some(')') = ps.chars.next() {
+                if let Some(')') = ps.next() {
                     ParseResult::Matched(expr, ps)
                 } else {
                     ParseResult::Error("Expected ).".to_string(), ps.line, ps.col)
@@ -833,13 +864,13 @@ fn tuple(ps: ParseState) -> ParseResult {
     let mut lps = ps.clone();
     let mut elements = Vec::new();
     lps = skip!(lps, whitespace);
-    if let Some('(') = lps.chars.next() {
+    if let Some('(') = lps.next() {
         let mut has_comma = false;
         loop {
             lps = skip!(lps, whitespace);
             // Allow for tuple with one element
             if let Some(')') = lps.chars.peek() {
-                lps.chars.next();
+                lps.next();
                 break;
             }
             match expression(lps) {
@@ -854,7 +885,7 @@ fn tuple(ps: ParseState) -> ParseResult {
                     return ParseResult::Error(err, line, col);
                 }
             }
-            match lps.chars.next() {
+            match lps.next() {
                 Some(',') => {
                     has_comma = true;
                 }
@@ -874,7 +905,7 @@ fn tuple(ps: ParseState) -> ParseResult {
             }
         }
         if has_comma {
-            ParseResult::Matched(AST::Tuple(elements), lps)
+            ParseResult::Matched(AST::Tuple(elements, ps.line, ps.col), lps)
         } else {
             ParseResult::NotMatched(ps)
         }
@@ -886,8 +917,8 @@ fn tuple(ps: ParseState) -> ParseResult {
 pub fn parse(src: &str) -> ParseResult {
     let mut ps = ParseState {
         chars: src.chars().peekable(),
-        line: usize::max_value(),
-        col: usize::max_value(),
+        line: 1,
+        col: 1,
     };
     ps = skip!(ps, whitespace);
     program(ps)
@@ -902,7 +933,7 @@ mod tests {
             match parser::parse($input) {
                 parser::ParseResult::Matched(ast, mut ps) => {
                     assert_eq!(ast.to_string(), $value);
-                    assert_eq!(ps.chars.next(), None);
+                    assert_eq!(ps.next(), None);
                 }
                 parser::ParseResult::NotMatched(_) => {
                     assert!(false);

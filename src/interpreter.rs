@@ -79,7 +79,14 @@ impl fmt::Display for Type {
 }
 
 pub enum TypedAST {
-    BinaryOp(Type, parser::Operator, Box<TypedAST>, Box<TypedAST>),
+    BinaryOp(
+        Type,
+        parser::Operator,
+        Box<TypedAST>,
+        Box<TypedAST>,
+        usize,
+        usize,
+    ),
     Boolean(bool),
     Call(Box<TypedAST>, Box<TypedAST>),
     Function(Box<TypedAST>, Box<TypedAST>),
@@ -94,7 +101,7 @@ pub enum TypedAST {
 
 fn type_of(ast: &TypedAST) -> Type {
     match ast {
-        TypedAST::BinaryOp(typ, _, _, _)
+        TypedAST::BinaryOp(typ, _, _, _, _, _)
         | TypedAST::Identifier(typ, _)
         | TypedAST::Let(typ, _, _)
         | TypedAST::Program(typ, _)
@@ -134,7 +141,7 @@ fn find_upvalues(
     upvalues: &mut HashMap<String, (usize, Type)>,
 ) {
     match ast {
-        TypedAST::BinaryOp(_, _, lhs, rhs) => {
+        TypedAST::BinaryOp(_, _, lhs, rhs, _, _) => {
             find_upvalues(lhs, ids, upvalues);
             find_upvalues(rhs, ids, upvalues);
         }
@@ -191,7 +198,8 @@ fn generate(
     ids: &HashMap<String, usize>,
 ) {
     match ast {
-        TypedAST::BinaryOp(_, op, lhs, rhs) => {
+        TypedAST::BinaryOp(_, op, lhs, rhs, line, col) => {
+            instr.push(vm::Opcode::Srcpos(*line, *col));
             generate(rhs, vm, instr, ids);
             generate(lhs, vm, instr, ids);
             match op {
@@ -376,7 +384,7 @@ fn typecheck(
     ids: &mut HashMap<String, Type>,
 ) -> Result<TypedAST, InterpreterError> {
     match ast {
-        parser::AST::BinaryOp(op, lhs, rhs) => match typecheck(rhs, ids) {
+        parser::AST::BinaryOp(op, lhs, rhs, line, col) => match typecheck(rhs, ids) {
             Ok(typed_rhs) => match typecheck(lhs, ids) {
                 Ok(typed_lhs) => match op {
                     parser::Operator::Divide
@@ -389,8 +397,8 @@ fn typecheck(
                         {
                             Err(InterpreterError {
                                 err: "Type error: expected integer.".to_string(),
-                                line: usize::max_value(),
-                                col: usize::max_value(),
+                                line: *line,
+                                col: *col,
                             })
                         } else {
                             Ok(TypedAST::BinaryOp(
@@ -398,6 +406,8 @@ fn typecheck(
                                 op.clone(),
                                 Box::new(typed_lhs),
                                 Box::new(typed_rhs),
+                                *line,
+                                *col,
                             ))
                         }
                     }
@@ -410,8 +420,8 @@ fn typecheck(
                         {
                             Err(InterpreterError {
                                 err: "Type error: expected integer.".to_string(),
-                                line: usize::max_value(),
-                                col: usize::max_value(),
+                                line: *line,
+                                col: *col,
                             })
                         } else {
                             Ok(TypedAST::BinaryOp(
@@ -419,6 +429,8 @@ fn typecheck(
                                 op.clone(),
                                 Box::new(typed_lhs),
                                 Box::new(typed_rhs),
+                                *line,
+                                *col,
                             ))
                         }
                     }
@@ -428,8 +440,8 @@ fn typecheck(
                         {
                             Err(InterpreterError {
                                 err: "Type error: expected boolean.".to_string(),
-                                line: usize::max_value(),
-                                col: usize::max_value(),
+                                line: *line,
+                                col: *col,
                             })
                         } else {
                             Ok(TypedAST::BinaryOp(
@@ -437,6 +449,8 @@ fn typecheck(
                                 op.clone(),
                                 Box::new(typed_lhs),
                                 Box::new(typed_rhs),
+                                *line,
+                                *col,
                             ))
                         }
                     }
@@ -450,8 +464,8 @@ fn typecheck(
                             err.push('.');
                             Err(InterpreterError {
                                 err: err,
-                                line: usize::max_value(),
-                                col: usize::max_value(),
+                                line: *line,
+                                col: *col,
                             })
                         } else {
                             Ok(TypedAST::BinaryOp(
@@ -459,6 +473,8 @@ fn typecheck(
                                 op.clone(),
                                 Box::new(typed_lhs),
                                 Box::new(typed_rhs),
+                                *line,
+                                *col,
                             ))
                         }
                     }
@@ -467,8 +483,8 @@ fn typecheck(
             },
             Err(err) => Err(err),
         },
-        parser::AST::Boolean(b) => Ok(TypedAST::Boolean(*b)),
-        parser::AST::Call(fun, arg) => match typecheck(&fun, ids) {
+        parser::AST::Boolean(b, _, _) => Ok(TypedAST::Boolean(*b)),
+        parser::AST::Call(fun, arg, line, col) => match typecheck(&fun, ids) {
             Ok(typed_fun) => match typecheck(arg, ids) {
                 Ok(typed_arg) => {
                     if let Type::Function(param, _) = type_of(&typed_fun) {
@@ -482,15 +498,15 @@ fn typecheck(
                             err.push('.');
                             Err(InterpreterError {
                                 err: err,
-                                line: usize::max_value(),
-                                col: usize::max_value(),
+                                line: *line,
+                                col: *col,
                             })
                         }
                     } else {
                         Err(InterpreterError {
                             err: "Type error: attempt to call non-lambda.".to_string(),
-                            line: usize::max_value(),
-                            col: usize::max_value(),
+                            line: *line,
+                            col: *col,
                         })
                     }
                 }
@@ -498,26 +514,26 @@ fn typecheck(
             },
             Err(err) => Err(err),
         },
-        parser::AST::Function(param, body) => {
+        parser::AST::Function(param, body, line, col) => {
             let err =
                 "Type error: function parameters should be identifier or tuple of identifiers."
                     .to_string();
             let mut params = Vec::new();
             match &**param {
-                parser::AST::Identifier(p) => {
+                parser::AST::Identifier(p, _, _) => {
                     params.push(p);
                 }
-                parser::AST::Tuple(elements) => {
+                parser::AST::Tuple(elements, _, _) => {
                     for element in elements {
                         match element {
-                            parser::AST::Identifier(p) => {
+                            parser::AST::Identifier(p, _, _) => {
                                 params.push(p);
                             }
                             _ => {
                                 return Err(InterpreterError {
                                     err: err,
-                                    line: usize::max_value(),
-                                    col: usize::max_value(),
+                                    line: *line,
+                                    col: *col,
                                 });
                             }
                         }
@@ -526,8 +542,8 @@ fn typecheck(
                 _ => {
                     return Err(InterpreterError {
                         err: err,
-                        line: usize::max_value(),
-                        col: usize::max_value(),
+                        line: *line,
+                        col: *col,
                     });
                 }
             }
@@ -547,8 +563,8 @@ fn typecheck(
                         err.push('.');
                         return Err(InterpreterError {
                             err: err,
-                            line: usize::max_value(),
-                            col: usize::max_value(),
+                            line: *line,
+                            col: *col,
                         });
                     }
                 }
@@ -572,7 +588,7 @@ fn typecheck(
                 Err(err) => Err(err),
             }
         }
-        parser::AST::Identifier(s) => match ids.get(s) {
+        parser::AST::Identifier(s, line, col) => match ids.get(s) {
             Some(typ) => Ok(TypedAST::Identifier(typ.clone(), s.clone())),
             None => {
                 let mut err = "Type error: could not infer type for identifier: ".to_string();
@@ -580,12 +596,12 @@ fn typecheck(
                 err.push('.');
                 return Err(InterpreterError {
                     err: err,
-                    line: usize::max_value(),
-                    col: usize::max_value(),
+                    line: *line,
+                    col: *col,
                 });
             }
         },
-        parser::AST::If(conds, els) => {
+        parser::AST::If(conds, els, line, col) => {
             let mut first = true;
             let mut inferred_type = Type::Boolean;
             let mut typed_conds = Vec::new();
@@ -600,8 +616,8 @@ fn typecheck(
                         _ => {
                             return Err(InterpreterError {
                                 err: "Type error: expected boolean.".to_string(),
-                                line: usize::max_value(),
-                                col: usize::max_value(),
+                                line: *line,
+                                col: *col,
                             });
                         }
                     },
@@ -622,8 +638,8 @@ fn typecheck(
                             err.push('.');
                             return Err(InterpreterError {
                                 err: err,
-                                line: usize::max_value(),
-                                col: usize::max_value(),
+                                line: *line,
+                                col: *col,
                             });
                         }
                         typed_cond1 = t;
@@ -644,8 +660,8 @@ fn typecheck(
                         err.push('.');
                         return Err(InterpreterError {
                             err: err,
-                            line: usize::max_value(),
-                            col: usize::max_value(),
+                            line: *line,
+                            col: *col,
                         });
                     } else {
                         Ok(TypedAST::If(typed_conds, Box::new(t)))
@@ -656,9 +672,9 @@ fn typecheck(
                 }
             }
         }
-        parser::AST::Integer(i) => Ok(TypedAST::Integer(*i)),
-        parser::AST::Let(id, value) => match &**id {
-            parser::AST::Identifier(id) => match typecheck(value, ids) {
+        parser::AST::Integer(i, _, _) => Ok(TypedAST::Integer(*i)),
+        parser::AST::Let(id, value, line, col) => match &**id {
+            parser::AST::Identifier(id, _, _) => match typecheck(value, ids) {
                 Ok(typed_value) => {
                     ids.insert(id.to_string(), type_of(&typed_value));
                     Ok(TypedAST::Let(
@@ -671,11 +687,11 @@ fn typecheck(
             },
             _ => Err(InterpreterError {
                 err: "Type error: expected identifier.".to_string(),
-                line: usize::max_value(),
-                col: usize::max_value(),
+                line: *line,
+                col: *col,
             }),
         },
-        parser::AST::Program(expressions) => {
+        parser::AST::Program(expressions, _, _) => {
             let mut typed_expressions = Vec::new();
             for expression in expressions {
                 match typecheck(&expression, ids) {
@@ -692,7 +708,7 @@ fn typecheck(
                 None => unreachable!(),
             }
         }
-        parser::AST::Tuple(elements) => {
+        parser::AST::Tuple(elements, _, _) => {
             let mut types = Vec::new();
             let mut typed_elements = Vec::new();
             for element in elements {
@@ -708,7 +724,7 @@ fn typecheck(
             }
             Ok(TypedAST::Tuple(Type::Tuple(types), typed_elements))
         }
-        parser::AST::UnaryOp(op, ast) => match typecheck(ast, ids) {
+        parser::AST::UnaryOp(op, ast, line, col) => match typecheck(ast, ids) {
             Ok(typed_ast) => match op {
                 parser::Operator::Minus => {
                     if type_of(&typed_ast) == Type::Integer {
@@ -720,8 +736,8 @@ fn typecheck(
                     } else {
                         Err(InterpreterError {
                             err: "Type error: expected integer.".to_string(),
-                            line: usize::max_value(),
-                            col: usize::max_value(),
+                            line: *line,
+                            col: *col,
                         })
                     }
                 }
@@ -735,15 +751,15 @@ fn typecheck(
                     } else {
                         Err(InterpreterError {
                             err: "Type error: expected boolean.".to_string(),
-                            line: usize::max_value(),
-                            col: usize::max_value(),
+                            line: *line,
+                            col: *col,
                         })
                     }
                 }
                 _ => Err(InterpreterError {
                     err: "Invalid unary operator.".to_string(),
-                    line: usize::max_value(),
-                    col: usize::max_value(),
+                    line: *line,
+                    col: *col,
                 }),
             },
             Err(err) => Err(err),
@@ -777,13 +793,13 @@ fn type_from_operator(op: &parser::Operator) -> Option<Type> {
 
 fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
     match ast {
-        parser::AST::BinaryOp(op, lhs, rhs) => {
-            if let parser::AST::Identifier(s) = &**lhs {
+        parser::AST::BinaryOp(op, lhs, rhs, _, _) => {
+            if let parser::AST::Identifier(s, _, _) = &**lhs {
                 if s == id {
                     match type_from_operator(op) {
                         Some(typ) => return Some(typ),
                         None => match &**rhs {
-                            parser::AST::BinaryOp(op, _, _) => match type_from_operator(op) {
+                            parser::AST::BinaryOp(op, _, _, _, _) => match type_from_operator(op) {
                                 Some(typ) => return Some(typ),
                                 None => match op {
                                     parser::Operator::Equal | parser::Operator::NotEqual => {
@@ -792,7 +808,7 @@ fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
                                     _ => return None,
                                 },
                             },
-                            parser::AST::UnaryOp(op, _) => {
+                            parser::AST::UnaryOp(op, _, _, _) => {
                                 return type_from_operator(op);
                             }
                             _ => match op {
@@ -805,12 +821,12 @@ fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
                     }
                 }
             }
-            if let parser::AST::Identifier(s) = &**rhs {
+            if let parser::AST::Identifier(s, _, _) = &**rhs {
                 if s == id {
                     match type_from_operator(op) {
                         Some(typ) => return Some(typ),
                         None => match &**lhs {
-                            parser::AST::BinaryOp(op, _, _) => match type_from_operator(op) {
+                            parser::AST::BinaryOp(op, _, _, _, _) => match type_from_operator(op) {
                                 Some(typ) => return Some(typ),
                                 None => match op {
                                     parser::Operator::Equal | parser::Operator::NotEqual => {
@@ -819,7 +835,7 @@ fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
                                     _ => return None,
                                 },
                             },
-                            parser::AST::UnaryOp(op, _) => {
+                            parser::AST::UnaryOp(op, _, _, _) => {
                                 return type_from_operator(op);
                             }
                             _ => match op {
@@ -837,9 +853,9 @@ fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
                 None => typeinfer(id, rhs),
             }
         }
-        parser::AST::Boolean(_) => Some(Type::Boolean),
-        parser::AST::Function(_, body) => typeinfer(id, body),
-        parser::AST::If(conds, els) => {
+        parser::AST::Boolean(_, _, _) => Some(Type::Boolean),
+        parser::AST::Function(_, body, _, _) => typeinfer(id, body),
+        parser::AST::If(conds, els, _, _) => {
             for cond in conds {
                 match typeinfer(id, &cond.0) {
                     Some(typ) => return Some(typ),
@@ -855,9 +871,9 @@ fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
                 None => return None,
             }
         }
-        parser::AST::Integer(_) => Some(Type::Integer),
-        parser::AST::Let(_, value) => typeinfer(id, value),
-        parser::AST::Program(expressions) => {
+        parser::AST::Integer(_, _, _) => Some(Type::Integer),
+        parser::AST::Let(_, value, _, _) => typeinfer(id, value),
+        parser::AST::Program(expressions, _, _) => {
             for expression in expressions {
                 match typeinfer(id, expression) {
                     Some(typ) => return Some(typ),
@@ -866,7 +882,7 @@ fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
             }
             None
         }
-        parser::AST::Tuple(elements) => {
+        parser::AST::Tuple(elements, _, _) => {
             for element in elements {
                 match typeinfer(id, element) {
                     Some(typ) => return Some(typ),
@@ -875,8 +891,8 @@ fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
             }
             None
         }
-        parser::AST::UnaryOp(op, ast) => {
-            if let parser::AST::Identifier(s) = &**ast {
+        parser::AST::UnaryOp(op, ast, _, _) => {
+            if let parser::AST::Identifier(s, _, _) = &**ast {
                 if s == id {
                     type_from_operator(op)
                 } else {
@@ -1293,20 +1309,6 @@ mod tests {
              end",
             "n",
             Type::Integer
-        );
-        typecheck!(
-            "fn (n, sum) ->
-                 if n == 1000 then
-                     sum
-                 else
-                     if (n % 3 == 0) || (n % 5 == 0) then
-                         main(n + 1, sum + n)
-                     else
-                         main(n + 1, sum)
-                     end
-                 end
-             end",
-            "(integer, integer) -> integer"
         );
     }
 }
