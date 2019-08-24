@@ -36,6 +36,7 @@ pub enum Opcode {
     NotEqual,
     Or,
     Pop,
+    Recur(usize),
     Ret(usize),
     Rot,
     SetEnv(String),
@@ -70,6 +71,7 @@ impl fmt::Display for Opcode {
             Opcode::NotEqual => write!(f, "neq"),
             Opcode::Or => write!(f, "or"),
             Opcode::Pop => write!(f, "pop"),
+            Opcode::Recur(n) => write!(f, "recur {}", n),
             Opcode::Ret(n) => write!(f, "ret {}", n),
             Opcode::Rot => write!(f, "rot"),
             Opcode::SetEnv(id) => write!(f, "setenv {}", id),
@@ -341,6 +343,20 @@ impl VirtualMachine {
                 Opcode::Pop => match self.stack.pop() {
                     Some(_) => {}
                     _ => unreachable!(),
+                },
+                Opcode::Recur(n) => match self.callstack.last() {
+                    Some((ip, _, sp, _)) => {
+                        for i in 0..*n {
+                            match self.stack.pop() {
+                                Some(v) => {
+                                    self.stack[sp - (*n - i - 1)] = v;
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                        self.ip = *ip;
+                    }
+                    None => unreachable!(),
                 },
                 Opcode::Ret(n) => match self.callstack.pop() {
                     Some((_, _, sp, ip)) => {
