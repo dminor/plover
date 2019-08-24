@@ -10,14 +10,14 @@ conditional    -> "if" equality "then" expression
                   | equality
 equality       -> comparison ( ( "~=" | "==" ) comparison )*
 comparison     -> addition ( ( ">" | ">=" | "<" | "<=" ) addition )*
-addition       -> multiplication ( ( "+" | "-" | "or" ) multiplication )*
-multiplication -> unary ( ( "/" | "*" | "|" | "mod" | "and" ) unary )*
+addition       -> multiplication ( ( "+" | "-" | "||" ) multiplication )*
+multiplication -> unary ( ( "/" | "*" | "|" | "%" | "&&" ) unary )*
 unary          -> ( "~" | "-" ) unary | call
 recur          -> recur value | call
 call           -> value value | value
 value          -> IDENTIFIER | INTEGER | STRING | "false" | "true"
                   | "(" expression "," ( expression )* ")"
-                  | "(" expression ")" | "[" ( expression )* "]"
+                  | "(" expression ")"
                   | "fn" ( IDENTIFIER ","? )* -> program end
 */
 
