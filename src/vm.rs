@@ -42,7 +42,6 @@ pub enum Opcode {
     SetEnv(String),
     Srcpos(usize, usize),
     Sub,
-    Swap,
 }
 
 impl fmt::Display for Opcode {
@@ -77,7 +76,6 @@ impl fmt::Display for Opcode {
             Opcode::SetEnv(id) => write!(f, "setenv {}", id),
             Opcode::Srcpos(line, col) => write!(f, "srcpos {} {}", line, col),
             Opcode::Sub => write!(f, "sub"),
-            Opcode::Swap => write!(f, "swap"),
         }
     }
 }
@@ -394,16 +392,6 @@ impl VirtualMachine {
                     Some(Value::Integer(x)) => match self.stack.pop() {
                         Some(Value::Integer(y)) => {
                             self.stack.push(Value::Integer(x - y));
-                        }
-                        _ => unreachable!(),
-                    },
-                    _ => unreachable!(),
-                },
-                Opcode::Swap => match self.stack.pop() {
-                    Some(x) => match self.stack.pop() {
-                        Some(y) => {
-                            self.stack.push(x);
-                            self.stack.push(y);
                         }
                         _ => unreachable!(),
                     },
