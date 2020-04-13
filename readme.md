@@ -45,8 +45,8 @@ made implementation much more natural, where the arguments are replaced on the
 stack and a jmp call is used to restart the function. The *recur* keyword is
 necessary because all functions in Schönfinkel are anonymous.
 
-The language is named after [Moses Schönfinkel]
-(https://en.wikipedia.org/wiki/Moses_Sch%C3%B6nfinkel), a logician.
+The language is named after
+[Moses Schönfinkel](https://en.wikipedia.org/wiki/Moses_Sch%C3%B6nfinkel), a logician.
 
 Keywords
 --------
@@ -134,8 +134,8 @@ let y := let z := 42;
 
 ### Function Calls
 
-A function call consists of a function followed by a value:
-separated by commas.
+A function call consists of a function value followed by the valueto which the
+function is applied.
 
 ```
 let f := fn x -> x + 1 end;
