@@ -1,10 +1,11 @@
-use crate::interpreter;
+use crate::codegen;
+use crate::typechecker;
 use std::collections::HashMap;
 use std::fmt;
 
 macro_rules! err {
     ($vm:expr, $msg:expr) => {{
-        return Err(interpreter::InterpreterError {
+        return Err(codegen::InterpreterError {
             err: $msg.to_string(),
             line: $vm.line,
             col: $vm.col,
@@ -21,7 +22,7 @@ pub enum Opcode {
     Div,
     Dup,
     Equal,
-    Fconst(usize, HashMap<String, (usize, interpreter::Type)>),
+    Fconst(usize, HashMap<String, (usize, typechecker::Type)>),
     GetEnv(String),
     Greater,
     GreaterEqual,
@@ -83,7 +84,7 @@ impl fmt::Display for Opcode {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Environment {
     pub values: HashMap<String, Value>,
-    pub types: HashMap<String, interpreter::Type>,
+    pub types: HashMap<String, typechecker::Type>,
 }
 
 impl Environment {
@@ -136,7 +137,7 @@ pub struct VirtualMachine {
 }
 
 impl VirtualMachine {
-    pub fn run(&mut self) -> Result<(), interpreter::InterpreterError> {
+    pub fn run(&mut self) -> Result<(), codegen::InterpreterError> {
         while self.ip < self.instructions.len() {
             match &self.instructions[self.ip] {
                 Opcode::Add => match self.stack.pop() {

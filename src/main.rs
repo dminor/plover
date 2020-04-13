@@ -3,8 +3,10 @@ use std::env;
 use std::fs::File;
 use std::io::prelude::*;
 
-mod interpreter;
+mod codegen;
 mod parser;
+mod typechecker;
+mod typeinfer;
 mod vm;
 
 use std::io::{self, BufRead, Write};
@@ -12,7 +14,7 @@ use std::io::{self, BufRead, Write};
 fn eval(filename: &str, src: &str, vm: &mut vm::VirtualMachine) {
     let lines: Vec<&str> = src.split('\n').collect();
     match parser::parse(&src) {
-        parser::ParseResult::Matched(ast, _) => match interpreter::eval(vm, &ast) {
+        parser::ParseResult::Matched(ast, _) => match codegen::eval(vm, &ast) {
             Ok(v) => {
                 println!("{}", v);
             }
