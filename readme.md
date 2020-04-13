@@ -1,7 +1,7 @@
-Sora
+Schönfinkel
 ====
 
-Sora is a little language written as a exercise to learn more about type
+Schönfinkel is a little language written as a exercise to learn more about type
 checking and type inference. It is third in a series of interpreters
 I've been working on. The first,
 [Scoundrel](https://github.com/dminor/scoundrel) was a purely functional
@@ -10,11 +10,11 @@ It worked by evaluating the abstract syntax tree. The second,
 [Walden](https://github.com/dminor/walden), a Smalltalk/Self dialect,
 added a virtual machine and mutable state.
 
-To keep things interesting Sora uses parser combinators rather than a separate
-lexer and recursive descent parser like in Scoundrel and Walden. The language
-is purely functional. Sora supports static type checking without
-having to use any type annotations, largely because the language is so simple.
-The type inference is done from scratch rather than using an existing
+To keep things interesting Schönfinkel uses parser combinators rather than a
+separate lexer and recursive descent parser like in Scoundrel and Walden. The
+language is purely functional. Schönfinkel supports static type checking
+without having to use any type annotations, largely because the language is so
+simple. The type inference is done from scratch rather than using an existing
 algorithm like Hindley-Milner.
 
 The type inference is bottom up, with the type being inferred from constants
@@ -29,29 +29,24 @@ fn (a, b) ->
 end
 ```
 
-Sora was much more time consuming to write than Scoundrel or Walden. Part of
-this was getting the type system to work. It made the development cycle for
-adding a new language feature that much longer, which made it difficult to
+Schönfinkel was much more time consuming to write than Scoundrel or Walden.
+Part of this was getting the type system to work. It made the development cycle
+for adding a new language feature that much longer, which made it difficult to
 keep momentum when developing the language. It's a lot of fun to see a new
 part of a language come alive in an interpreter, and that was a lot slower
-in Sora. I plan to learn a lot more about logic programming and unification
+in Schönfinkel. I plan to learn a lot more about logic programming and unification
 before tackling another type system.
 
-Like Scoundrel, Sora has a *recur* keyword inspired by Clojure. This was quite
+Like Scoundrel, Schönfinkel has a *recur* keyword inspired by Clojure. This was quite
 a bit of a hack to get working in Scoundrel where it ended up being a separate
 value returned from an expression that was caught to allow a function to call
-itself recursively without growing the stack. The virtual machine in Sora
+itself recursively without growing the stack. The virtual machine in Schönfinkel
 made implementation much more natural, where the arguments are replaced on the
-stack and a jmp call is used to restart the function.
+stack and a jmp call is used to restart the function. The *recur* keyword is
+necessary because all functions in Schönfinkel are anonymous.
 
-I had originally planned to add lists, strings and possible enums to Sora, and
-even try hooking up an existing library for JIT support (e.g.
-[Cranelift](https://github.com/CraneStation/cranelift)), but the development
-was slow enough to become a bit painful and I decided to leave the language in
-its current state and move on to something new.
-
-The language is named after the sora, a shy but widespread bird of marshes
-and wetlands in the Americas.
+The language is named after [Moses Schönfinkel]
+(https://en.wikipedia.org/wiki/Moses_Sch%C3%B6nfinkel), a logician.
 
 Keywords
 --------
