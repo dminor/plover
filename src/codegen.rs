@@ -161,6 +161,12 @@ fn generate(
             generate(fun, vm, instr, ids);
             instr.push(vm::Opcode::Call);
         }
+        TypedAST::Datatype(typ, variants) => {
+            // TODO: For each variant, we generate a constructor function to
+            // create values of the corresponding variant.
+            for variant in variants {}
+            instr.push(vm::Opcode::Uconst);
+        }
         TypedAST::Function(param, body) => {
             let mut fn_instr = Vec::new();
             let mut local_ids = ids.clone();
@@ -271,9 +277,6 @@ fn generate(
                 }
                 _ => unreachable!(),
             }
-        }
-        TypedAST::Unit => {
-            instr.push(vm::Opcode::Uconst);
         }
     }
 }

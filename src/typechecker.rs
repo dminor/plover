@@ -118,6 +118,7 @@ pub enum TypedAST {
     ),
     Boolean(bool),
     Call(Box<TypedAST>, Box<TypedAST>),
+    Datatype(Type, Vec<(String, Type)>),
     Function(Box<TypedAST>, Box<TypedAST>),
     Identifier(Type, String),
     If(Vec<(TypedAST, TypedAST)>, Box<TypedAST>),
@@ -127,12 +128,12 @@ pub enum TypedAST {
     Recur(Type, Box<TypedAST>),
     Tuple(Type, Vec<TypedAST>),
     UnaryOp(Type, parser::Operator, Box<TypedAST>),
-    Unit,
 }
 
 pub fn type_of(ast: &TypedAST) -> Type {
     match ast {
         TypedAST::BinaryOp(typ, _, _, _, _, _)
+        | TypedAST::Datatype(typ, _)
         | TypedAST::Identifier(typ, _)
         | TypedAST::Let(typ, _, _)
         | TypedAST::Program(typ, _)
@@ -149,7 +150,6 @@ pub fn type_of(ast: &TypedAST) -> Type {
         }
         TypedAST::If(_, els) => type_of(els),
         TypedAST::Integer(_) => Type::Integer,
-        TypedAST::Unit => Type::Unit,
     }
 }
 
@@ -163,6 +163,7 @@ fn set_recur_type(ast: &mut TypedAST, typ: &Type) {
             set_recur_type(fun, typ);
             set_recur_type(args, typ);
         }
+        TypedAST::Datatype(_, _) => {}
         TypedAST::Function(param, body) => {
             set_recur_type(param, typ);
             set_recur_type(body, typ);
@@ -195,6 +196,23 @@ fn set_recur_type(ast: &mut TypedAST, typ: &Type) {
             set_recur_type(ast, typ);
         }
         _ => {}
+    }
+}
+
+fn type_from_str(typ: &str) -> Option<Type> {
+    match typ {
+        "Boolean" => Some(Type::Boolean),
+        "Integer" => Some(Type::Integer),
+        _ => {
+            if typ.starts_with("'") {
+                Some(Type::Polymorphic(typ.to_string()))
+            } else {
+                // TODO: we should check against known types
+                // including the type we're defining to allow
+                // for recursive types.
+                None
+            }
+        }
     }
 }
 
@@ -336,7 +354,55 @@ pub fn typecheck(
             },
             Err(err) => Err(err),
         },
-        parser::AST::Datatype(_, _, _, _) => Ok(TypedAST::Unit),
+        parser::AST::Datatype(name, variants, line, col) => {
+            let mut typed_variants = Vec::new();
+            println!("name {} variants {:?}", name, variants);
+            for variant in variants {
+                if variant.1.is_empty() {
+                    println!("variant: {}", variant.0);
+                    // Type for constructor function
+                    ids.insert(
+                        variant.0.to_string(),
+                        Type::Function(
+                            Box::new(Type::Unit),
+                            Box::new(Type::Datatype(name.to_string())),
+                        ),
+                    );
+                    typed_variants.push((variant.0.to_string(), Type::Unit));
+                } else if variant.1.len() == 1 {
+                    match type_from_str(&variant.1[0]) {
+                        Some(t) => {
+                            // Type for constructor function
+                            ids.insert(
+                                variant.0.to_string(),
+                                Type::Function(
+                                    Box::new(t.clone()),
+                                    Box::new(Type::Datatype(name.to_string())),
+                                ),
+                            );
+                            typed_variants.push((variant.0.to_string(), t.clone()));
+                        }
+                        None => {
+                            let mut err = "Type error: unknown type: ".to_string();
+                            err.push_str(&variant.1[0]);
+                            err.push('.');
+                            return Err(InterpreterError {
+                                err: err,
+                                line: *line,
+                                col: *col,
+                            });
+                        }
+                    }
+                } else {
+                    // TODO: support tuple
+                    for typ in &variant.1 {}
+                }
+            }
+            Ok(TypedAST::Datatype(
+                Type::Datatype(name.to_string()),
+                typed_variants,
+            ))
+        }
         parser::AST::Function(param, body, line, col) => {
             let err =
                 "Type error: function parameters should be identifier or tuple of identifiers."

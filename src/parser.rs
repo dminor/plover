@@ -375,24 +375,24 @@ impl fmt::Display for AST {
             AST::BinaryOp(op, lhs, rhs, _, _) => write!(f, "({} {} {})", op, lhs, rhs),
             AST::Boolean(b, _, _) => write!(f, "{}:Boolean", b),
             AST::Call(fun, args, _, _) => write!(f, "(apply {} {})", fun, args),
-            AST::Datatype(typename, names, _, _) => {
+            AST::Datatype(name, variants, _, _) => {
                 write!(f, "(")?;
-                for i in 0..names.len() {
-                    write!(f, "{}", names[i].0)?;
-                    if !names[i].1.is_empty() {
+                for i in 0..variants.len() {
+                    write!(f, "{}", variants[i].0)?;
+                    if !variants[i].1.is_empty() {
                         write!(f, ":")?;
                     }
-                    for j in 0..names[i].1.len() {
-                        write!(f, "{}", names[i].1[j])?;
-                        if j + 1 != names[i].1.len() {
+                    for j in 0..variants[i].1.len() {
+                        write!(f, "{}", variants[i].1[j])?;
+                        if j + 1 != variants[i].1.len() {
                             write!(f, "*")?;
                         }
                     }
-                    if i + 1 != names.len() {
+                    if i + 1 != variants.len() {
                         write!(f, ", ")?;
                     }
                 }
-                write!(f, ") {}:Type", typename)
+                write!(f, ") {}:Type", name)
             }
             AST::Function(param, body, _, _) => write!(f, "(fn {} {})", param, body),
             AST::Identifier(id, _, _) => write!(f, "{}:Identifier", id),
@@ -650,7 +650,7 @@ fn typedef(ps: ParseState) -> ParseResult {
                 lps = skip!(ps, whitespace);
                 if assignment!(lps) {
                     lps = skip!(lps, whitespace);
-                    let mut names = Vec::new();
+                    let mut variants = Vec::new();
                     loop {
                         match identifier(lps) {
                             ParseResult::Matched(name, ps) => {
@@ -694,7 +694,7 @@ fn typedef(ps: ParseState) -> ParseResult {
                                     }
                                 }
                                 if let AST::Identifier(s, _, _) = name {
-                                    names.push((s, types));
+                                    variants.push((s, types));
                                     lps = skip!(lps, whitespace);
                                 } else {
                                     unreachable!()
@@ -717,11 +717,11 @@ fn typedef(ps: ParseState) -> ParseResult {
                         lps.chars.next();
                         lps = skip!(lps, whitespace);
                     }
-                    if names.is_empty() {
+                    if variants.is_empty() {
                         ParseResult::Error("Expected identifier.".to_string(), lps.line, lps.col)
                     } else {
                         if let AST::Identifier(s, _, _) = typename {
-                            ParseResult::Matched(AST::Datatype(s, names, lps.line, lps.col), lps)
+                            ParseResult::Matched(AST::Datatype(s, variants, lps.line, lps.col), lps)
                         } else {
                             unreachable!()
                         }
@@ -1207,6 +1207,10 @@ mod tests {
         parse!(
             "type List := Cons : 'a * List | Null",
             "(Cons:'a*List, Null) List:Type"
+        );
+        parse!(
+            "type Option := Some : 'a | None; let a := Some 42",
+            "((Some:'a, None) Option:Type (define a:Identifier (apply Some:Identifier 42:Integer)))"
         );
     }
 }

@@ -79,7 +79,7 @@ impl fmt::Display for Opcode {
             Opcode::SetEnv(id) => write!(f, "setenv {}", id),
             Opcode::Srcpos(line, col) => write!(f, "srcpos {} {}", line, col),
             Opcode::Sub => write!(f, "sub"),
-            Opcode::Uconst => write!(f, "uconst"),
+            Opcode::Uconst => write!(f, "const"),
         }
     }
 }
@@ -102,7 +102,7 @@ impl Environment {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Boolean(bool),
-    Datatype(String, Box<Value>),
+    Datatype(String, String, Box<Value>),
     Function(usize, Environment),
     Integer(i64),
     Tuple(Vec<Value>),
@@ -113,7 +113,7 @@ impl fmt::Display for Value {
     fn fmt<'a>(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Value::Boolean(b) => write!(f, "{}", b),
-            Value::Datatype(n, v) => {
+            Value::Datatype(n, _, v) => {
                 if let Value::Unit = v.borrow() {
                     write!(f, "{}", n)
                 } else {
