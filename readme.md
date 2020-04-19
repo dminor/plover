@@ -1,5 +1,5 @@
 Schönfinkel
-====
+===========
 
 Schönfinkel is a little language written as a exercise to learn more about type
 checking and type inference. It is third in a series of interpreters

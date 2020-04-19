@@ -12,6 +12,7 @@ pub enum Type {
     Function(Box<Type>, Box<Type>),
     Integer,
     Tuple(Vec<Type>),
+    UserType(String),
 }
 
 impl PartialEq for Type {
@@ -54,6 +55,13 @@ impl PartialEq for Type {
                     false
                 }
             }
+            Type::UserType(s) => {
+                if let Type::UserType(t) = other {
+                    s == t
+                } else {
+                    false
+                }
+            }
         }
     }
 }
@@ -75,6 +83,7 @@ impl fmt::Display for Type {
                 }
                 write!(f, ")")
             }
+            Type::UserType(s) => write!(f, "{}", s),
         }
     }
 }
@@ -98,6 +107,7 @@ pub enum TypedAST {
     Program(Type, Vec<TypedAST>),
     Recur(Type, Box<TypedAST>),
     Tuple(Type, Vec<TypedAST>),
+    Type(Type),
     UnaryOp(Type, parser::Operator, Box<TypedAST>),
 }
 
@@ -109,6 +119,7 @@ pub fn type_of(ast: &TypedAST) -> Type {
         | TypedAST::Program(typ, _)
         | TypedAST::Recur(typ, _)
         | TypedAST::Tuple(typ, _)
+        | TypedAST::Type(typ)
         | TypedAST::UnaryOp(typ, _, _) => typ.clone(),
         TypedAST::Boolean(_) => Type::Boolean,
         TypedAST::Call(fun, _) => match type_of(fun) {
@@ -544,6 +555,7 @@ pub fn typecheck(
             }
             Ok(TypedAST::Tuple(Type::Tuple(types), typed_elements))
         }
+        parser::AST::Type(s, _, _, _) => Ok(TypedAST::Type(Type::UserType(s.to_string()))),
         parser::AST::UnaryOp(op, ast, line, col) => match typecheck(ast, ids, current_param) {
             Ok(typed_ast) => match op {
                 parser::Operator::Minus => {

@@ -1,7 +1,9 @@
 use std::fmt;
 
 /*
-program        -> expression ( ";" ( ";" expression )* )?
+program        -> type ( ";" ( ";" type )* )?
+type           -> "type" IDENTIFIER ":=" IDENTIFIER ( "(" IDENTIFIER ")" )? ( "|" type)*
+                  | expression
 expression     -> "let" IDENTIFIER ":=" expression
                   | conditional
 conditional    -> "if" equality "then" expression
@@ -362,6 +364,7 @@ pub enum AST {
     Program(Vec<AST>, usize, usize),
     Recur(Box<AST>, usize, usize),
     Tuple(Vec<AST>, usize, usize),
+    Type(String, Vec<(String, Vec<String>)>, usize, usize),
     UnaryOp(Operator, Box<AST>, usize, usize),
     None,
 }
@@ -408,6 +411,25 @@ impl fmt::Display for AST {
                     }
                 }
                 write!(f, "):Tuple")
+            }
+            AST::Type(typename, names, _, _) => {
+                write!(f, "(")?;
+                for i in 0..names.len() {
+                    write!(f, "{}", names[i].0)?;
+                    if !names[i].1.is_empty() {
+                        write!(f, ":")?;
+                    }
+                    for j in 0..names[i].1.len() {
+                        write!(f, "{}", names[i].1[j])?;
+                        if j + 1 != names[i].1.len() {
+                            write!(f, "*")?;
+                        }
+                    }
+                    if i + 1 != names.len() {
+                        write!(f, ", ")?;
+                    }
+                }
+                write!(f, ") {}:Type", typename)
             }
             AST::UnaryOp(op, ast, _, _) => write!(f, "({} {})", op, ast),
             AST::None => write!(f, "None"),
@@ -482,7 +504,7 @@ fn program(ps: ParseState) -> ParseResult {
 }
 
 fn expression(ps: ParseState) -> ParseResult {
-    or!(ps, conditional, letexpr, equality)
+    or!(ps, typedef, conditional, letexpr, equality)
 }
 
 fn conditional(ps: ParseState) -> ParseResult {
@@ -617,6 +639,105 @@ fn letexpr(ps: ParseState) -> ParseResult {
 
 fn equality(ps: ParseState) -> ParseResult {
     binary_op!(comparison, equality_operator, ps)
+}
+
+fn typedef(ps: ParseState) -> ParseResult {
+    let mut lps = ps.clone();
+    if let Some(_) = expect!(lps, "type") {
+        lps = skip!(lps, whitespace);
+        match identifier(lps) {
+            ParseResult::Matched(typename, ps) => {
+                lps = skip!(ps, whitespace);
+                if assignment!(lps) {
+                    lps = skip!(lps, whitespace);
+                    let mut names = Vec::new();
+                    loop {
+                        match identifier(lps) {
+                            ParseResult::Matched(name, ps) => {
+                                lps = skip!(ps, whitespace);
+                                let mut types = Vec::new();
+                                if Some(&':') == lps.chars.peek() {
+                                    loop {
+                                        lps.chars.next();
+                                        lps = skip!(lps, whitespace);
+                                        let mut first = true;
+                                        let mut typ = String::new();
+                                        while let Some(c) = lps.chars.peek() {
+                                            if first && c == &'\'' {
+                                                first = false;
+                                                typ.push(*c);
+                                                lps.next();
+                                            } else if c.is_alphabetic() {
+                                                typ.push(*c);
+                                                lps.next();
+                                            } else {
+                                                break;
+                                            }
+                                        }
+                                        if !typ.is_empty() {
+                                            types.push(typ);
+                                        } else {
+                                            return ParseResult::Error(
+                                                "Expected type identifier.".to_string(),
+                                                lps.line,
+                                                lps.col,
+                                            );
+                                        }
+                                        lps = skip!(lps, whitespace);
+                                        if let Some(c) = lps.chars.peek() {
+                                            if *c == '*' {
+                                                lps.next();
+                                            } else {
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                if let AST::Identifier(s, _, _) = name {
+                                    names.push((s, types));
+                                    lps = skip!(lps, whitespace);
+                                } else {
+                                    unreachable!()
+                                }
+                            }
+                            ParseResult::NotMatched(ps) => {
+                                return ParseResult::Error(
+                                    "Expected identifier.".to_string(),
+                                    ps.line,
+                                    ps.col,
+                                );
+                            }
+                            ParseResult::Error(err, line, col) => {
+                                return ParseResult::Error(err, line, col);
+                            }
+                        }
+                        if Some(&'|') != lps.chars.peek() {
+                            break;
+                        }
+                        lps.chars.next();
+                        lps = skip!(lps, whitespace);
+                    }
+                    if names.is_empty() {
+                        ParseResult::Error("Expected identifier.".to_string(), lps.line, lps.col)
+                    } else {
+                        if let AST::Identifier(s, _, _) = typename {
+                            ParseResult::Matched(AST::Type(s, names, lps.line, lps.col), lps)
+                        } else {
+                            unreachable!()
+                        }
+                    }
+                } else {
+                    ParseResult::Error("Expected :=.".to_string(), lps.line, lps.col)
+                }
+            }
+            ParseResult::NotMatched(ps) => {
+                ParseResult::Error("Expected identifier.".to_string(), ps.line, ps.col)
+            }
+            ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
+        }
+    } else {
+        ParseResult::NotMatched(ps)
+    }
 }
 
 fn comparison(ps: ParseState) -> ParseResult {
@@ -1076,6 +1197,16 @@ mod tests {
         parse!(
             "let f := fn x -> let t := 2; x + t end",
             "(define f:Identifier (fn x:Identifier ((define t:Identifier 2:Integer) (+ x:Identifier t:Identifier))))"
+        );
+
+        parse!("type Option := Some | None", "(Some, None) Option:Type");
+        parse!(
+            "type Option := Some : 'a | None",
+            "(Some:'a, None) Option:Type"
+        );
+        parse!(
+            "type List := Cons : 'a * List | Null",
+            "(Cons:'a*List, Null) List:Type"
         );
     }
 }
