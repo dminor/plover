@@ -1,5 +1,6 @@
 use crate::codegen;
 use crate::typechecker;
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -101,6 +102,7 @@ impl Environment {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Boolean(bool),
+    Datatype(String, Box<Value>),
     Function(usize, Environment),
     Integer(i64),
     Tuple(Vec<Value>),
@@ -111,6 +113,13 @@ impl fmt::Display for Value {
     fn fmt<'a>(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Value::Boolean(b) => write!(f, "{}", b),
+            Value::Datatype(n, v) => {
+                if let Value::Unit = v.borrow() {
+                    write!(f, "{}", n)
+                } else {
+                    write!(f, "{} {}", n, v)
+                }
+            }
             Value::Function(ip, _) => write!(f, "(lambda @{})", ip),
             Value::Integer(v) => write!(f, "{}", v),
             Value::Tuple(elements) => {

@@ -1,8 +1,8 @@
 use std::fmt;
 
 /*
-program        -> type ( ";" ( ";" type )* )?
-type           -> "type" IDENTIFIER ":=" IDENTIFIER ( "(" IDENTIFIER ")" )? ( "|" type)*
+program        -> datatype ( ";" )? ( ";" datatype )*
+datatype       -> "type" IDENTIFIER ":=" IDENTIFIER ( "(" IDENTIFIER ")" )? ( "|" datatype)*
                   | expression
 expression     -> "let" IDENTIFIER ":=" expression
                   | conditional
@@ -356,6 +356,7 @@ pub enum AST {
     BinaryOp(Operator, Box<AST>, Box<AST>, usize, usize),
     Boolean(bool, usize, usize),
     Call(Box<AST>, Box<AST>, usize, usize),
+    Datatype(String, Vec<(String, Vec<String>)>, usize, usize),
     Function(Box<AST>, Box<AST>, usize, usize),
     Identifier(String, usize, usize),
     If(Vec<(AST, AST)>, Box<AST>, usize, usize),
@@ -364,7 +365,6 @@ pub enum AST {
     Program(Vec<AST>, usize, usize),
     Recur(Box<AST>, usize, usize),
     Tuple(Vec<AST>, usize, usize),
-    Type(String, Vec<(String, Vec<String>)>, usize, usize),
     UnaryOp(Operator, Box<AST>, usize, usize),
     None,
 }
@@ -375,6 +375,25 @@ impl fmt::Display for AST {
             AST::BinaryOp(op, lhs, rhs, _, _) => write!(f, "({} {} {})", op, lhs, rhs),
             AST::Boolean(b, _, _) => write!(f, "{}:Boolean", b),
             AST::Call(fun, args, _, _) => write!(f, "(apply {} {})", fun, args),
+            AST::Datatype(typename, names, _, _) => {
+                write!(f, "(")?;
+                for i in 0..names.len() {
+                    write!(f, "{}", names[i].0)?;
+                    if !names[i].1.is_empty() {
+                        write!(f, ":")?;
+                    }
+                    for j in 0..names[i].1.len() {
+                        write!(f, "{}", names[i].1[j])?;
+                        if j + 1 != names[i].1.len() {
+                            write!(f, "*")?;
+                        }
+                    }
+                    if i + 1 != names.len() {
+                        write!(f, ", ")?;
+                    }
+                }
+                write!(f, ") {}:Type", typename)
+            }
             AST::Function(param, body, _, _) => write!(f, "(fn {} {})", param, body),
             AST::Identifier(id, _, _) => write!(f, "{}:Identifier", id),
             AST::If(conds, els, _, _) => {
@@ -411,25 +430,6 @@ impl fmt::Display for AST {
                     }
                 }
                 write!(f, "):Tuple")
-            }
-            AST::Type(typename, names, _, _) => {
-                write!(f, "(")?;
-                for i in 0..names.len() {
-                    write!(f, "{}", names[i].0)?;
-                    if !names[i].1.is_empty() {
-                        write!(f, ":")?;
-                    }
-                    for j in 0..names[i].1.len() {
-                        write!(f, "{}", names[i].1[j])?;
-                        if j + 1 != names[i].1.len() {
-                            write!(f, "*")?;
-                        }
-                    }
-                    if i + 1 != names.len() {
-                        write!(f, ", ")?;
-                    }
-                }
-                write!(f, ") {}:Type", typename)
             }
             AST::UnaryOp(op, ast, _, _) => write!(f, "({} {})", op, ast),
             AST::None => write!(f, "None"),
@@ -721,7 +721,7 @@ fn typedef(ps: ParseState) -> ParseResult {
                         ParseResult::Error("Expected identifier.".to_string(), lps.line, lps.col)
                     } else {
                         if let AST::Identifier(s, _, _) = typename {
-                            ParseResult::Matched(AST::Type(s, names, lps.line, lps.col), lps)
+                            ParseResult::Matched(AST::Datatype(s, names, lps.line, lps.col), lps)
                         } else {
                             unreachable!()
                         }

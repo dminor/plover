@@ -13,7 +13,7 @@ pub enum Type {
     Polymorphic(String),
     Tuple(Vec<Type>),
     Unit,
-    UserType(String),
+    Datatype(String),
 }
 
 impl PartialEq for Type {
@@ -73,8 +73,8 @@ impl PartialEq for Type {
                     false
                 }
             }
-            Type::UserType(s) => {
-                if let Type::UserType(t) = other {
+            Type::Datatype(s) => {
+                if let Type::Datatype(t) = other {
                     s == t
                 } else {
                     false
@@ -101,7 +101,7 @@ impl fmt::Display for Type {
                 }
                 write!(f, ")")
             }
-            Type::UserType(s) => write!(f, "{}", s),
+            Type::Datatype(s) => write!(f, "{}", s),
             Type::Unit => write!(f, "unit"),
         }
     }
@@ -336,6 +336,7 @@ pub fn typecheck(
             },
             Err(err) => Err(err),
         },
+        parser::AST::Datatype(_, _, _, _) => Ok(TypedAST::Unit),
         parser::AST::Function(param, body, line, col) => {
             let err =
                 "Type error: function parameters should be identifier or tuple of identifiers."
@@ -577,7 +578,6 @@ pub fn typecheck(
             }
             Ok(TypedAST::Tuple(Type::Tuple(types), typed_elements))
         }
-        parser::AST::Type(_, _, _, _) => Ok(TypedAST::Unit),
         parser::AST::UnaryOp(op, ast, line, col) => match typecheck(ast, ids, current_param) {
             Ok(typed_ast) => match op {
                 parser::Operator::Minus => {
