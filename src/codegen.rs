@@ -259,9 +259,6 @@ fn generate(
                 generate(&element, vm, instr, ids);
             }
         }
-        TypedAST::Type(t) => {
-            instr.push(vm::Opcode::Tconst(t.to_string()));
-        }
         TypedAST::UnaryOp(_, op, ast) => {
             generate(ast, vm, instr, ids);
             match op {
@@ -274,6 +271,9 @@ fn generate(
                 }
                 _ => unreachable!(),
             }
+        }
+        TypedAST::Unit => {
+            instr.push(vm::Opcode::Uconst);
         }
     }
 }

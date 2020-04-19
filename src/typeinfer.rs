@@ -199,7 +199,11 @@ mod tests {
         typeinfer!("let x := 1", "x", Type::Integer);
         typeinfer!("let x := let y := 1", "x", Type::Integer);
         typeinfer!("let x := let y := 1", "y", Type::Integer);
-        typeinfer!("fn(x, y) -> x == y end", "x", Type::Polymorphic("'a".to_string()));
+        typeinfer!(
+            "fn(x, y) -> x == y end",
+            "x",
+            Type::Polymorphic("'a".to_string())
+        );
         typeinfer!(
             "let main := fn (n, sum) ->
                  if n == 1000 then

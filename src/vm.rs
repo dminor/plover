@@ -43,7 +43,7 @@ pub enum Opcode {
     SetEnv(String),
     Srcpos(usize, usize),
     Sub,
-    Tconst(String),
+    Uconst,
 }
 
 impl fmt::Display for Opcode {
@@ -78,7 +78,7 @@ impl fmt::Display for Opcode {
             Opcode::SetEnv(id) => write!(f, "setenv {}", id),
             Opcode::Srcpos(line, col) => write!(f, "srcpos {} {}", line, col),
             Opcode::Sub => write!(f, "sub"),
-            Opcode::Tconst(s) => write!(f, "tconst {}", s),
+            Opcode::Uconst => write!(f, "uconst"),
         }
     }
 }
@@ -104,7 +104,7 @@ pub enum Value {
     Function(usize, Environment),
     Integer(i64),
     Tuple(Vec<Value>),
-    Type(String),
+    Unit,
 }
 
 impl fmt::Display for Value {
@@ -123,7 +123,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, ")")
             }
-            Value::Type(s) => write!(f, "{}", s),
+            Value::Unit => write!(f, "()"),
         }
     }
 }
@@ -402,8 +402,8 @@ impl VirtualMachine {
                     },
                     _ => unreachable!(),
                 },
-                Opcode::Tconst(t) => {
-                    self.stack.push(Value::Type(t.to_string()));
+                Opcode::Uconst => {
+                    self.stack.push(Value::Unit);
                 }
             }
             self.ip += 1;

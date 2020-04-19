@@ -12,6 +12,7 @@ pub enum Type {
     Integer,
     Polymorphic(String),
     Tuple(Vec<Type>),
+    Unit,
     UserType(String),
 }
 
@@ -65,6 +66,13 @@ impl PartialEq for Type {
                     false
                 }
             }
+            Type::Unit => {
+                if let Type::Unit = other {
+                    true
+                } else {
+                    false
+                }
+            }
             Type::UserType(s) => {
                 if let Type::UserType(t) = other {
                     s == t
@@ -94,6 +102,7 @@ impl fmt::Display for Type {
                 write!(f, ")")
             }
             Type::UserType(s) => write!(f, "{}", s),
+            Type::Unit => write!(f, "unit"),
         }
     }
 }
@@ -117,8 +126,8 @@ pub enum TypedAST {
     Program(Type, Vec<TypedAST>),
     Recur(Type, Box<TypedAST>),
     Tuple(Type, Vec<TypedAST>),
-    Type(Type),
     UnaryOp(Type, parser::Operator, Box<TypedAST>),
+    Unit,
 }
 
 pub fn type_of(ast: &TypedAST) -> Type {
@@ -129,7 +138,6 @@ pub fn type_of(ast: &TypedAST) -> Type {
         | TypedAST::Program(typ, _)
         | TypedAST::Recur(typ, _)
         | TypedAST::Tuple(typ, _)
-        | TypedAST::Type(typ)
         | TypedAST::UnaryOp(typ, _, _) => typ.clone(),
         TypedAST::Boolean(_) => Type::Boolean,
         TypedAST::Call(fun, _) => match type_of(fun) {
@@ -141,6 +149,7 @@ pub fn type_of(ast: &TypedAST) -> Type {
         }
         TypedAST::If(_, els) => type_of(els),
         TypedAST::Integer(_) => Type::Integer,
+        TypedAST::Unit => Type::Unit,
     }
 }
 
@@ -531,7 +540,10 @@ pub fn typecheck(
             Ok(typed_arg) => match current_param {
                 Some(current_param) => {
                     if *current_param == type_of(&typed_arg) {
-                        Ok(TypedAST::Recur(Type::Polymorphic("'a".to_string()), Box::new(typed_arg)))
+                        Ok(TypedAST::Recur(
+                            Type::Polymorphic("'a".to_string()),
+                            Box::new(typed_arg),
+                        ))
                     } else {
                         let mut err = "Type error: expected ".to_string();
                         err.push_str(&current_param.to_string());
@@ -565,7 +577,7 @@ pub fn typecheck(
             }
             Ok(TypedAST::Tuple(Type::Tuple(types), typed_elements))
         }
-        parser::AST::Type(s, _, _, _) => Ok(TypedAST::Type(Type::UserType(s.to_string()))),
+        parser::AST::Type(_, _, _, _) => Ok(TypedAST::Unit),
         parser::AST::UnaryOp(op, ast, line, col) => match typecheck(ast, ids, current_param) {
             Ok(typed_ast) => match op {
                 parser::Operator::Minus => {
