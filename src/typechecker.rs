@@ -7,21 +7,24 @@ use std::fmt;
 
 #[derive(Clone, Debug)]
 pub enum Type {
-    Any,
     Boolean,
     Function(Box<Type>, Box<Type>),
     Integer,
+    Polymorphic(String),
     Tuple(Vec<Type>),
     UserType(String),
 }
 
 impl PartialEq for Type {
     fn eq(&self, other: &Type) -> bool {
-        if let Type::Any = other {
-            return true;
+        if let Type::Polymorphic(s) = other {
+            if let Type::Polymorphic(t) = self {
+                return s == t;
+            } else {
+                return true;
+            }
         }
         match self {
-            Type::Any => true,
             Type::Boolean => {
                 if let Type::Boolean = other {
                     true
@@ -41,6 +44,13 @@ impl PartialEq for Type {
                     true
                 } else {
                     false
+                }
+            }
+            Type::Polymorphic(s) => {
+                if let Type::Polymorphic(t) = other {
+                    s == t
+                } else {
+                    true
                 }
             }
             Type::Tuple(elements) => {
@@ -69,10 +79,10 @@ impl PartialEq for Type {
 impl fmt::Display for Type {
     fn fmt<'a>(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Type::Any => write!(f, "any"),
             Type::Boolean => write!(f, "boolean"),
             Type::Function(param, body) => write!(f, "{} -> {}", param, body),
             Type::Integer => write!(f, "integer"),
+            Type::Polymorphic(s) => write!(f, "{}", s),
             Type::Tuple(elements) => {
                 write!(f, "(")?;
                 for i in 0..elements.len() {
@@ -521,7 +531,7 @@ pub fn typecheck(
             Ok(typed_arg) => match current_param {
                 Some(current_param) => {
                     if *current_param == type_of(&typed_arg) {
-                        Ok(TypedAST::Recur(Type::Any, Box::new(typed_arg)))
+                        Ok(TypedAST::Recur(Type::Polymorphic("'a".to_string()), Box::new(typed_arg)))
                     } else {
                         let mut err = "Type error: expected ".to_string();
                         err.push_str(&current_param.to_string());
@@ -659,6 +669,6 @@ mod tests {
         typecheck!("let x := 1", "integer");
         typecheck!("let x := false", "boolean");
         typecheck!("let x := (1, false)", "(integer, boolean)");
-        typecheck!("fn(x, y) -> x == y end", "(any, any) -> boolean");
+        typecheck!("fn(x, y) -> x == y end", "('a, 'a) -> boolean");
     }
 }

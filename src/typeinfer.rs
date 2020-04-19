@@ -35,7 +35,7 @@ pub fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
                                 Some(typ) => return Some(typ),
                                 None => match op {
                                     parser::Operator::Equal | parser::Operator::NotEqual => {
-                                        return Some(Type::Any);
+                                        return Some(Type::Polymorphic("'a".to_string()));
                                     }
                                     _ => return None,
                                 },
@@ -48,7 +48,7 @@ pub fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
                             }
                             _ => match op {
                                 parser::Operator::Equal | parser::Operator::NotEqual => {
-                                    return Some(Type::Any)
+                                    return Some(Type::Polymorphic("'a".to_string()))
                                 }
                                 _ => return None,
                             },
@@ -65,7 +65,7 @@ pub fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
                                 Some(typ) => return Some(typ),
                                 None => match op {
                                     parser::Operator::Equal | parser::Operator::NotEqual => {
-                                        return Some(Type::Any)
+                                        return Some(Type::Polymorphic("'a".to_string()))
                                     }
                                     _ => return None,
                                 },
@@ -81,7 +81,7 @@ pub fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
                             }
                             _ => match op {
                                 parser::Operator::Equal | parser::Operator::NotEqual => {
-                                    return Some(Type::Any)
+                                    return Some(Type::Polymorphic("'a".to_string()))
                                 }
                                 _ => return None,
                             },
@@ -199,7 +199,7 @@ mod tests {
         typeinfer!("let x := 1", "x", Type::Integer);
         typeinfer!("let x := let y := 1", "x", Type::Integer);
         typeinfer!("let x := let y := 1", "y", Type::Integer);
-        typeinfer!("fn(x, y) -> x == y end", "x", Type::Any);
+        typeinfer!("fn(x, y) -> x == y end", "x", Type::Polymorphic("'a".to_string()));
         typeinfer!(
             "let main := fn (n, sum) ->
                  if n == 1000 then

@@ -19,9 +19,8 @@ algorithm like Hindley-Milner.
 
 The type inference is bottom up, with the type being inferred from constants
 if present, and operators if they are not present. The only polymorphism is
-in the == and ~= operators which may be applied to any type. In this case,
-a special Any type is used if it is not possible to infer the type from a
-constant, for example, in the following function:
+in the == and ~= operators which may be applied to any type, which can result
+in polymorphic functions:
 
 ```
 fn (a, b) ->
