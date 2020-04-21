@@ -1066,7 +1066,17 @@ pub fn parse(src: &str) -> ParseResult {
         col: 1,
     };
     ps = skip!(ps, whitespace);
-    program(ps)
+    match program(ps) {
+        ParseResult::Matched(parsed, mut ps) => {
+            if let Some(_) = ps.next() {
+                ParseResult::Error("Trailing characters.".to_string(), ps.line, ps.col)
+            } else {
+                ParseResult::Matched(parsed, ps)
+            }
+        }
+        ParseResult::NotMatched(ps) => unreachable!(),
+        ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
+    }
 }
 
 #[cfg(test)]
@@ -1085,6 +1095,22 @@ mod tests {
                 }
                 parser::ParseResult::Error(_, _, _) => {
                     assert!(false);
+                }
+            }
+        }};
+    }
+
+    macro_rules! parsefails {
+        ($input:expr, $err:expr) => {{
+            match parser::parse($input) {
+                parser::ParseResult::Matched(_, _) => {
+                    assert!(false);
+                }
+                parser::ParseResult::NotMatched(_) => {
+                    assert!(false);
+                }
+                parser::ParseResult::Error(err, _, _) => {
+                    assert_eq!($err, err);
                 }
             }
         }};
@@ -1212,5 +1238,6 @@ mod tests {
             "type Option := Some : 'a | None; let a := Some 42",
             "((Some:'a, None) Option:Type (define a:Identifier (apply Some:Identifier 42:Integer)))"
         );
+        parsefails!("type Option := Some 'a | None", "Trailing characters.");
     }
 }
