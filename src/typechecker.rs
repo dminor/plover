@@ -431,7 +431,7 @@ pub fn typecheck(
             let mut types = Vec::new();
             let mut typed_params = Vec::new();
             for param in params {
-                match typeinfer(param, body) {
+                match typeinfer(param, &ids, body) {
                     Some(typ) => {
                         typed_params.push(TypedAST::Identifier(typ.clone(), param.to_string()));
                         types.push(typ.clone());

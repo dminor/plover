@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::parser;
 use crate::typechecker::Type;
 
@@ -20,7 +22,7 @@ fn type_from_operator(op: &parser::Operator) -> Option<Type> {
     }
 }
 
-pub fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
+pub fn typeinfer(id: &str, ids: &HashMap<String, Type>, ast: &parser::AST) -> Option<Type> {
     match ast {
         parser::AST::BinaryOp(op, lhs, rhs, _, _) => {
             if let parser::AST::Identifier(s, _, _) = &**lhs {
@@ -89,34 +91,40 @@ pub fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
                     }
                 }
             }
-            match typeinfer(id, lhs) {
+            match typeinfer(id, ids, lhs) {
                 Some(typ) => Some(typ),
-                None => typeinfer(id, rhs),
+                None => typeinfer(id, ids, rhs),
             }
         }
         parser::AST::Boolean(_, _, _) => Some(Type::Boolean),
-        parser::AST::Function(_, body, _, _) => typeinfer(id, body),
+        parser::AST::Call(fun, _, _, _) => typeinfer(id, ids, fun),
+        parser::AST::Function(_, body, _, _) => typeinfer(id, ids, body),
+        parser::AST::Identifier(id, _, _) => match ids.get(id) {
+            Some(Type::Function(from, to)) => Some(*to.clone()),
+            Some(typ) => Some(typ.clone()),
+            None => None,
+        },
         parser::AST::If(conds, els, _, _) => {
             for cond in conds {
-                match typeinfer(id, &cond.0) {
+                match typeinfer(id, ids, &cond.0) {
                     Some(typ) => return Some(typ),
                     None => {}
                 }
-                match typeinfer(id, &cond.1) {
+                match typeinfer(id, ids, &cond.1) {
                     Some(typ) => return Some(typ),
                     None => {}
                 }
             }
-            match typeinfer(id, els) {
+            match typeinfer(id, ids, els) {
                 Some(typ) => return Some(typ),
                 None => return None,
             }
         }
         parser::AST::Integer(_, _, _) => Some(Type::Integer),
-        parser::AST::Let(_, value, _, _) => typeinfer(id, value),
+        parser::AST::Let(_, value, _, _) => typeinfer(id, ids, value),
         parser::AST::Program(expressions, _, _) => {
             for expression in expressions {
-                match typeinfer(id, expression) {
+                match typeinfer(id, ids, expression) {
                     Some(typ) => return Some(typ),
                     None => {}
                 }
@@ -125,7 +133,7 @@ pub fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
         }
         parser::AST::Tuple(elements, _, _) => {
             for element in elements {
-                match typeinfer(id, element) {
+                match typeinfer(id, ids, element) {
                     Some(typ) => return Some(typ),
                     None => {}
                 }
@@ -137,10 +145,10 @@ pub fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
                 if s == id {
                     type_from_operator(op)
                 } else {
-                    typeinfer(id, ast)
+                    typeinfer(id, ids, ast)
                 }
             } else {
-                typeinfer(id, ast)
+                typeinfer(id, ids, ast)
             }
         }
         _ => None,
@@ -149,6 +157,8 @@ pub fn typeinfer(id: &str, ast: &parser::AST) -> Option<Type> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use crate::parser;
     use crate::typechecker::Type;
     use crate::typeinfer;
@@ -156,7 +166,28 @@ mod tests {
     macro_rules! typeinfer {
         ($input:expr, $id:expr, $value:expr) => {{
             match parser::parse($input) {
-                parser::ParseResult::Matched(ast, _) => match typeinfer::typeinfer($id, &ast) {
+                parser::ParseResult::Matched(ast, _) => {
+                    match typeinfer::typeinfer($id, &HashMap::new(), &ast) {
+                        Some(typ) => {
+                            assert_eq!(typ, $value);
+                        }
+                        None => {
+                            assert!(false);
+                        }
+                    }
+                }
+                parser::ParseResult::NotMatched(_) => {
+                    assert!(false);
+                }
+                parser::ParseResult::Error(_, _, _) => {
+                    assert!(false);
+                }
+            }
+        }};
+        ($input:expr, $id:expr, $ids:expr, $value:expr) => {{
+            match parser::parse($input) {
+                parser::ParseResult::Matched(ast, _) => match typeinfer::typeinfer($id, $ids, &ast)
+                {
                     Some(typ) => {
                         assert_eq!(typ, $value);
                     }
@@ -218,6 +249,30 @@ mod tests {
              end",
             "n",
             Type::Integer
+        );
+        let mut ids = HashMap::new();
+        ids.insert(
+            "Some".to_string(),
+            Type::Function(
+                Box::new(Type::Polymorphic("'a".to_string())),
+                Box::new(Type::Datatype("Maybe".to_string())),
+            ),
+        );
+        ids.insert("None".to_string(), Type::Datatype("Maybe".to_string()));
+        typeinfer!(
+            "type Maybe := Some : 'a | None;
+             let x := Some 42",
+            "x",
+            &ids,
+            Type::Datatype("Maybe".to_string())
+        );
+        typeinfer!(
+            "type Maybe := Some : 'a | None;
+             let f := fn x -> Some x end;
+             let x := f 42",
+            "x",
+            &ids,
+            Type::Datatype("Maybe".to_string())
         );
     }
 }
