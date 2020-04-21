@@ -23,6 +23,7 @@ pub enum Opcode {
     Div,
     Dup,
     Equal,
+    Dconst(String, String),
     Fconst(usize, HashMap<String, (usize, typechecker::Type)>),
     GetEnv(String),
     Greater,
@@ -58,6 +59,7 @@ impl fmt::Display for Opcode {
             Opcode::Div => write!(f, "div"),
             Opcode::Dup => write!(f, "dup"),
             Opcode::Equal => write!(f, "eq"),
+            Opcode::Dconst(typ, ctor) => write!(f, "const {}", ctor),
             Opcode::Fconst(ip, _) => write!(f, "lambda @{}", ip),
             Opcode::GetEnv(id) => write!(f, "getenv {}", id),
             Opcode::Greater => write!(f, "gt"),
@@ -216,6 +218,16 @@ impl VirtualMachine {
                         }
                         _ => unreachable!(),
                     },
+                    _ => unreachable!(),
+                },
+                Opcode::Dconst(typ, ctor) => match self.stack.pop() {
+                    Some(value) => {
+                        self.stack.push(Value::Datatype(
+                            typ.to_string(),
+                            ctor.to_string(),
+                            Box::new(value),
+                        ));
+                    }
                     _ => unreachable!(),
                 },
                 Opcode::Fconst(ip, upvalues) => {

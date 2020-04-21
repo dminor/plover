@@ -356,19 +356,10 @@ pub fn typecheck(
         },
         parser::AST::Datatype(name, variants, line, col) => {
             let mut typed_variants = Vec::new();
-            println!("name {} variants {:?}", name, variants);
             for variant in variants {
                 if variant.1.is_empty() {
-                    println!("variant: {}", variant.0);
-                    // Type for constructor function
-                    ids.insert(
-                        variant.0.to_string(),
-                        Type::Function(
-                            Box::new(Type::Unit),
-                            Box::new(Type::Datatype(name.to_string())),
-                        ),
-                    );
-                    typed_variants.push((variant.0.to_string(), Type::Unit));
+                    ids.insert(variant.0.to_string(), Type::Datatype(name.to_string()));
+                    typed_variants.push((variant.0.to_string(), Type::Datatype(name.to_string())));
                 } else if variant.1.len() == 1 {
                     match type_from_str(&variant.1[0]) {
                         Some(t) => {
@@ -748,5 +739,6 @@ mod tests {
         typecheck!("let x := false", "boolean");
         typecheck!("let x := (1, false)", "(integer, boolean)");
         typecheck!("fn(x, y) -> x == y end", "('a, 'a) -> boolean");
+        typecheck!("type Maybe := Some : 'a | None", "Maybe");
     }
 }

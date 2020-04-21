@@ -162,9 +162,25 @@ fn generate(
             instr.push(vm::Opcode::Call);
         }
         TypedAST::Datatype(typ, variants) => {
-            // TODO: For each variant, we generate a constructor function to
-            // create values of the corresponding variant.
-            for variant in variants {}
+            for variant in variants {
+                if let Type::Datatype(name) = &variant.1 {
+                    instr.push(vm::Opcode::Uconst);
+                    instr.push(vm::Opcode::Dconst(typ.to_string(), variant.0.to_string()));
+                    instr.push(vm::Opcode::SetEnv(variant.0.to_string()));
+                } else {
+                    let mut fn_instr = Vec::new();
+                    let mut count = 2;
+
+                    fn_instr.push(vm::Opcode::Dup);
+                    fn_instr.push(vm::Opcode::Dconst(typ.to_string(), variant.0.to_string()));
+
+                    fn_instr.push(vm::Opcode::Ret(count - 1));
+                    let ip = vm.instructions.len();
+                    vm.instructions.extend(fn_instr);
+                    instr.push(vm::Opcode::Fconst(ip, HashMap::new()));
+                    instr.push(vm::Opcode::SetEnv(variant.0.to_string()));
+                }
+            }
             instr.push(vm::Opcode::Uconst);
         }
         TypedAST::Function(param, body) => {
@@ -344,6 +360,30 @@ mod tests {
     use crate::vm::Value;
 
     macro_rules! eval {
+        ($input:expr, Datatype, $value:expr) => {{
+            let mut vm = vm::VirtualMachine::new();
+            match parser::parse($input) {
+                parser::ParseResult::Matched(ast, _) => match codegen::eval(&mut vm, &ast) {
+                    Ok(v) => match v {
+                        Value::Datatype(_, _, v) => {
+                            assert_eq!(v, $value);
+                        }
+                        _ => {
+                            assert!(false);
+                        }
+                    },
+                    Err(_) => {
+                        assert!(false);
+                    }
+                },
+                parser::ParseResult::NotMatched(_) => {
+                    assert!(false);
+                }
+                parser::ParseResult::Error(_, _, _) => {
+                    assert!(false);
+                }
+            }
+        }};
         ($input:expr, Tuple, $($value:expr),*) => {{
             let mut vm = vm::VirtualMachine::new();
             match parser::parse($input) {
@@ -591,6 +631,18 @@ mod tests {
              main(0, 0)",
             Integer,
             233168
+        );
+        eval!(
+            "type Maybe := Some : 'a | None;
+             Some 42;",
+            Datatype,
+            Box::new(vm::Value::Integer(42))
+        );
+        eval!(
+            "type Maybe := Some : 'a | None;
+             None;",
+            Datatype,
+            Box::new(vm::Value::Unit)
         );
     }
 }
