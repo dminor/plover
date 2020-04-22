@@ -22,6 +22,43 @@ fn type_from_operator(op: &parser::Operator) -> Option<Type> {
     }
 }
 
+fn occurs(id: &str, ast: &parser::AST) -> bool {
+    match ast {
+        parser::AST::BinaryOp(_, lhs, rhs, _, _) => occurs(id, lhs) || occurs(id, rhs),
+        parser::AST::Call(fun, arg, _, _) => occurs(id, fun) || occurs(id, arg),
+        parser::AST::Function(fun, param, _, _) => occurs(id, fun),
+        parser::AST::Identifier(other, _, _) => id == other,
+        parser::AST::If(conds, els, _, _) => {
+            for cond in conds {
+                if occurs(id, &cond.0) || occurs(id, &cond.1) {
+                    return true;
+                }
+            }
+            occurs(id, els)
+        }
+        parser::AST::Let(other, value, _, _) => !occurs(id, other) && occurs(id, value),
+        parser::AST::Program(expressions, _, _) => {
+            for expression in expressions {
+                if occurs(id, expression) {
+                    return true;
+                }
+            }
+            false
+        }
+        parser::AST::Recur(ast, _, _) => occurs(id, ast),
+        parser::AST::Tuple(elements, _, _) => {
+            for element in elements {
+                if occurs(id, element) {
+                    return true;
+                }
+            }
+            false
+        }
+        parser::AST::UnaryOp(_, ast, _, _) => occurs(id, ast),
+        _ => false,
+    }
+}
+
 pub fn typeinfer(id: &str, ids: &HashMap<String, Type>, ast: &parser::AST) -> Option<Type> {
     match ast {
         parser::AST::BinaryOp(op, lhs, rhs, _, _) => {
@@ -98,7 +135,13 @@ pub fn typeinfer(id: &str, ids: &HashMap<String, Type>, ast: &parser::AST) -> Op
         }
         parser::AST::Boolean(_, _, _) => Some(Type::Boolean),
         parser::AST::Call(fun, _, _, _) => typeinfer(id, ids, fun),
-        parser::AST::Function(_, body, _, _) => typeinfer(id, ids, body),
+        parser::AST::Function(param, body, _, _) => {
+            if occurs(id, body) {
+                typeinfer(id, ids, body)
+            } else {
+                Some(Type::Polymorphic("'a".to_string()))
+            }
+        }
         parser::AST::Identifier(id, _, _) => match ids.get(id) {
             Some(Type::Function(from, to)) => Some(*to.clone()),
             Some(typ) => Some(typ.clone()),
@@ -273,6 +316,14 @@ mod tests {
             "x",
             &ids,
             Type::Datatype("Maybe".to_string())
+        );
+        typeinfer!(
+            "let f := fn x -> 42 end",
+            "f",
+            Type::Function(
+                Box::new(Type::Polymorphic("'a".to_string())),
+                Box::new(Type::Integer)
+            )
         );
     }
 }
