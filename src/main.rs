@@ -7,6 +7,7 @@ mod codegen;
 mod parser;
 mod typechecker;
 mod typeinfer;
+mod unification;
 mod vm;
 
 use std::io::{self, BufRead, Write};
