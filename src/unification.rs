@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::typechecker::Type;
+use crate::typeinfer::Type;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Term {

@@ -20,7 +20,7 @@ call           -> value value | value
 value          -> IDENTIFIER | INTEGER | STRING | "false" | "true"
                   | "(" expression "," ( expression )* ")"
                   | "(" expression ")"
-                  | "fn" ( IDENTIFIER ","? )* -> program end
+                  | "fn" ( IDENTIFIER ","? )* -> expression end
 */
 
 macro_rules! binary_op {
@@ -313,7 +313,7 @@ macro_rules! skip {
     }};
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Operator {
     And,
     Divide,

@@ -1,5 +1,5 @@
 use crate::codegen;
-use crate::typechecker;
+use crate::typeinfer;
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt;
@@ -24,7 +24,7 @@ pub enum Opcode {
     Dup,
     Equal,
     Dconst(String, String),
-    Fconst(usize, HashMap<String, (usize, typechecker::Type)>),
+    Fconst(usize, HashMap<String, (usize, typeinfer::Type)>),
     GetEnv(String),
     Greater,
     GreaterEqual,
@@ -89,7 +89,7 @@ impl fmt::Display for Opcode {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Environment {
     pub values: HashMap<String, Value>,
-    pub types: HashMap<String, typechecker::Type>,
+    pub types: HashMap<String, typeinfer::Type>,
 }
 
 impl Environment {
