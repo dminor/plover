@@ -181,9 +181,7 @@ fn add_params_to_ids(ids: &mut HashMap<String, Type>, param: &TypedAST) -> bool 
             }
             true
         }
-        _ => {
-            false
-        }
+        _ => false,
     }
 }
 
@@ -322,14 +320,18 @@ fn build_constraints(
 
             if !add_params_to_ids(&mut ids, &typed_param) {
                 return Err(InterpreterError {
-                    err: "Type error: lambda parameter must be identifier or tuple of identifiers.".to_string(),
+                    err: "Type error: lambda parameter must be identifier or tuple of identifiers."
+                        .to_string(),
                     line: *line,
                     col: *col,
                 });
             }
 
             let typed_body = build_constraints(id, constraints, &mut ids, &body)?;
-            Ok(TypedAST::Function(Box::new(typed_param), Box::new(typed_body)))
+            Ok(TypedAST::Function(
+                Box::new(typed_param),
+                Box::new(typed_body),
+            ))
         }
         parser::AST::Identifier(s, _, _) => match ids.get(s) {
             Some(typ) => Ok(TypedAST::Identifier(typ.clone(), s.clone())),
@@ -376,7 +378,11 @@ fn build_constraints(
             if let parser::AST::Identifier(ident, line, col) = &**ident {
                 let typed_value = build_constraints(id, constraints, ids, &value)?;
                 ids.insert(ident.to_string(), type_of(&typed_value));
-                Ok(TypedAST::Let(type_of(&typed_value), ident.clone(), Box::new(typed_value)))
+                Ok(TypedAST::Let(
+                    type_of(&typed_value),
+                    ident.clone(),
+                    Box::new(typed_value),
+                ))
             } else {
                 Err(InterpreterError {
                     err: "Type error: expected identifier.".to_string(),
@@ -540,7 +546,7 @@ pub fn infer(
     let mut constraints = Vec::new();
 
     let mut typed_ast = build_constraints(&mut id, &mut constraints, &mut ids, &ast)?;
-    let mut bindings : HashMap<String, Term> = HashMap::new();
+    let mut bindings: HashMap<String, Term> = HashMap::new();
     for constraint in constraints {
         let typ0 = match &constraint.0 {
             Term::Type(typ) => {
@@ -549,13 +555,9 @@ pub fn infer(
                 typ.to_string()
             }
             Term::Variable(s) => match bindings.get(s) {
-                Some(typ) => {
-                    typ.to_string()
-                },
-                _ => {
-                    s.to_string()
-                }
-            }
+                Some(typ) => typ.to_string(),
+                _ => s.to_string(),
+            },
         };
         let typ1 = match &constraint.1 {
             Term::Type(typ) => {
@@ -564,13 +566,9 @@ pub fn infer(
                 typ.to_string()
             }
             Term::Variable(s) => match bindings.get(s) {
-                Some(typ) => {
-                    typ.to_string()
-                },
-                _ => {
-                    s.to_string()
-                }
-            }
+                Some(typ) => typ.to_string(),
+                _ => s.to_string(),
+            },
         };
 
         if !unify(&[constraint.0], &[constraint.1], &mut bindings) {
@@ -699,33 +697,35 @@ mod tests {
             "fn x -> fn y -> x + y end end",
             "integer -> integer -> integer"
         );
-        infer!(
-            "fn(x, y) -> x == y end",
-            "(t2, t2) -> boolean"
-        );
+        infer!("fn(x, y) -> x == y end", "(t2, t2) -> boolean");
         infer!("(fn x -> ~x end) true", "boolean");
         infer!("(fn x -> x + 1 end) 1", "integer");
-        inferfails!("(1,1) 1", "Type error: attempt to call non-lambda value.", 1, 8);
+        inferfails!(
+            "(1,1) 1",
+            "Type error: attempt to call non-lambda value.",
+            1,
+            8
+        );
         infer!("let x := 1", "integer");
         infer!("let x := false", "boolean");
         infer!("let x := (1, false)", "(integer, boolean)");
-/*
-        inferfails!(
-            "let main := fn (n, sum) ->
-                 if n == 1000 then
-                     sum
-                 else
-                     if (n % 3 == 0) || (n % 5 == 0) then
-                         main(n + 1, sum + n)
-                     else
-                         main(n + 1, sum)
-                     end
-                 end
-             end",
-            "(integer, integer) -> integer", 1, 1
-        );
+        /*
+                inferfails!(
+                    "let main := fn (n, sum) ->
+                         if n == 1000 then
+                             sum
+                         else
+                             if (n % 3 == 0) || (n % 5 == 0) then
+                                 main(n + 1, sum + n)
+                             else
+                                 main(n + 1, sum)
+                             end
+                         end
+                     end",
+                    "(integer, integer) -> integer", 1, 1
+                );
 
-        infer!("type Maybe := Some : 'a | None", "Maybe");
-*/
+                infer!("type Maybe := Some : 'a | None", "Maybe");
+        */
     }
 }

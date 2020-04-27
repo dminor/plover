@@ -480,8 +480,14 @@ mod tests {
         eval!("1 > 2", Boolean, false);
         eval!("2 >= 2", Boolean, true);
         eval!("5 * 4 * 3 * 2 * 1", Integer, 120);
-        evalfails!("1 + true", "Type error: expected integer but found boolean.");
-        evalfails!("1 && true", "Type error: expected boolean but found integer.");
+        evalfails!(
+            "1 + true",
+            "Type error: expected integer but found boolean."
+        );
+        evalfails!(
+            "1 && true",
+            "Type error: expected boolean but found integer."
+        );
         evalfails!("~1", "Type error: expected boolean but found integer.");
         evalfails!("-false", "Type error: expected integer but found boolean.");
         evalfails!(
@@ -492,7 +498,10 @@ mod tests {
             "1 ~= false",
             "Type error: expected integer but found boolean."
         );
-        evalfails!("0 <= false", "Type error: expected integer but found boolean.");
+        evalfails!(
+            "0 <= false",
+            "Type error: expected integer but found boolean."
+        );
         eval!("(1 + 2) * 5", Integer, 15);
         eval!("1 + 2 * 5", Integer, 11);
         evalfails!("1 / 0", "Division by zero.");
@@ -615,36 +624,36 @@ mod tests {
             Boolean,
             false
         );
-/*
-        eval!(
-            "let main := fn (n, sum) ->
-                 if n == 1000 then
-                     sum
-                 else
-                     if (n % 3 == 0) || (n % 5 == 0) then
-                         recur (n + 1, sum + n)
-                     else
-                         recur (n + 1, sum)
-                     end
-                 end
-             end;
+        /*
+                eval!(
+                    "let main := fn (n, sum) ->
+                         if n == 1000 then
+                             sum
+                         else
+                             if (n % 3 == 0) || (n % 5 == 0) then
+                                 recur (n + 1, sum + n)
+                             else
+                                 recur (n + 1, sum)
+                             end
+                         end
+                     end;
 
-             main(0, 0)",
-            Integer,
-            233168
-        );
-        eval!(
-            "type Maybe := Some : 'a | None;
-             Some 42;",
-            Datatype,
-            Box::new(vm::Value::Integer(42))
-        );
-        eval!(
-            "type Maybe := Some : 'a | None;
-             None;",
-            Datatype,
-            Box::new(vm::Value::Unit)
-        );
-*/
+                     main(0, 0)",
+                    Integer,
+                    233168
+                );
+                eval!(
+                    "type Maybe := Some : 'a | None;
+                     Some 42;",
+                    Datatype,
+                    Box::new(vm::Value::Integer(42))
+                );
+                eval!(
+                    "type Maybe := Some : 'a | None;
+                     None;",
+                    Datatype,
+                    Box::new(vm::Value::Unit)
+                );
+        */
     }
 }
