@@ -2,7 +2,7 @@ use std::fmt;
 
 /*
 program        -> datatype ( ";" )? ( ";" datatype )*
-datatype       -> "type" IDENTIFIER ":=" IDENTIFIER ( "(" IDENTIFIER ")" )? ( "|" datatype)*
+datatype       -> "type" IDENTIFIER ":=" IDENTIFIER ( value )? ( "|" datatype)*
                   | expression
 expression     -> "let" IDENTIFIER ":=" expression
                   | conditional
@@ -356,7 +356,7 @@ pub enum AST {
     BinaryOp(Operator, Box<AST>, Box<AST>, usize, usize),
     Boolean(bool, usize, usize),
     Call(Box<AST>, Box<AST>, usize, usize),
-    Datatype(String, Vec<(String, Vec<String>)>, usize, usize),
+    Datatype(String, Vec<(String, Option<AST>)>, usize, usize),
     Function(Box<AST>, Box<AST>, usize, usize),
     Identifier(String, usize, usize),
     If(Vec<(AST, AST)>, Box<AST>, usize, usize),
@@ -379,14 +379,8 @@ impl fmt::Display for AST {
                 write!(f, "(")?;
                 for i in 0..variants.len() {
                     write!(f, "{}", variants[i].0)?;
-                    if !variants[i].1.is_empty() {
-                        write!(f, ":")?;
-                    }
-                    for j in 0..variants[i].1.len() {
-                        write!(f, "{}", variants[i].1[j])?;
-                        if j + 1 != variants[i].1.len() {
-                            write!(f, "*")?;
-                        }
+                    if let Some(param) = &variants[i].1 {
+                        write!(f, ": {}", param)?;
                     }
                     if i + 1 != variants.len() {
                         write!(f, ", ")?;
@@ -504,7 +498,7 @@ fn program(ps: ParseState) -> ParseResult {
 }
 
 fn expression(ps: ParseState) -> ParseResult {
-    or!(ps, typedef, conditional, letexpr, equality)
+    or!(ps, datatype, conditional, letexpr, equality)
 }
 
 fn conditional(ps: ParseState) -> ParseResult {
@@ -641,7 +635,7 @@ fn equality(ps: ParseState) -> ParseResult {
     binary_op!(comparison, equality_operator, ps)
 }
 
-fn typedef(ps: ParseState) -> ParseResult {
+fn datatype(ps: ParseState) -> ParseResult {
     let mut lps = ps.clone();
     if let Some(_) = expect!(lps, "type") {
         lps = skip!(lps, whitespace);
@@ -653,64 +647,37 @@ fn typedef(ps: ParseState) -> ParseResult {
                     let mut variants = Vec::new();
                     loop {
                         match identifier(lps) {
-                            ParseResult::Matched(name, ps) => {
+                            ParseResult::Matched(variant, ps) => {
                                 lps = skip!(ps, whitespace);
-                                let mut types = Vec::new();
-                                if Some(&':') == lps.chars.peek() {
-                                    loop {
-                                        lps.chars.next();
-                                        lps = skip!(lps, whitespace);
-                                        let mut first = true;
-                                        let mut typ = String::new();
-                                        while let Some(c) = lps.chars.peek() {
-                                            if first && c == &'\'' {
-                                                first = false;
-                                                typ.push(*c);
-                                                lps.next();
-                                            } else if c.is_alphabetic() {
-                                                typ.push(*c);
-                                                lps.next();
-                                            } else {
-                                                break;
-                                            }
-                                        }
-                                        if !typ.is_empty() {
-                                            types.push(typ);
-                                        } else {
-                                            return ParseResult::Error(
-                                                "Expected type identifier.".to_string(),
-                                                lps.line,
-                                                lps.col,
-                                            );
-                                        }
-                                        lps = skip!(lps, whitespace);
-                                        if let Some(c) = lps.chars.peek() {
-                                            if *c == '*' {
-                                                lps.next();
-                                            } else {
-                                                break;
-                                            }
-                                        }
+                                // Check for optional param
+                                let param = match value(lps) {
+                                    ParseResult::Matched(param, ps) => {
+                                        lps = skip!(ps, whitespace);
+                                        Some(param)
                                     }
-                                }
-                                if let AST::Identifier(s, _, _) = name {
-                                    variants.push((s, types));
-                                    lps = skip!(lps, whitespace);
+                                    ParseResult::NotMatched(ps) => {
+                                        lps = ps;
+                                        None
+                                    }
+                                    ParseResult::Error(err, line, col) => {
+                                        return ParseResult::Error(err, line, col);
+                                    }
+                                };
+                                if let AST::Identifier(variant, _, _) = variant {
+                                    variants.push((variant, param));
                                 } else {
                                     unreachable!()
                                 }
                             }
                             ParseResult::NotMatched(ps) => {
-                                return ParseResult::Error(
-                                    "Expected identifier.".to_string(),
-                                    ps.line,
-                                    ps.col,
-                                );
+                                lps = ps;
+                                break;
                             }
                             ParseResult::Error(err, line, col) => {
                                 return ParseResult::Error(err, line, col);
                             }
                         }
+                        lps = skip!(lps, whitespace);
                         if Some(&'|') != lps.chars.peek() {
                             break;
                         }
@@ -1100,22 +1067,6 @@ mod tests {
         }};
     }
 
-    macro_rules! parsefails {
-        ($input:expr, $err:expr) => {{
-            match parser::parse($input) {
-                parser::ParseResult::Matched(_, _) => {
-                    assert!(false);
-                }
-                parser::ParseResult::NotMatched(_) => {
-                    assert!(false);
-                }
-                parser::ParseResult::Error(err, _, _) => {
-                    assert_eq!($err, err);
-                }
-            }
-        }};
-    }
-
     #[test]
     fn parse() {
         parse!("42", "42:Integer");
@@ -1227,17 +1178,16 @@ mod tests {
 
         parse!("type Option := Some | None", "(Some, None) Option:Type");
         parse!(
-            "type Option := Some : 'a | None",
-            "(Some:'a, None) Option:Type"
+            "type Option := Some x | None",
+            "(Some: x:Identifier, None) Option:Type"
         );
         parse!(
-            "type List := Cons : 'a * List | Null",
-            "(Cons:'a*List, Null) List:Type"
+            "type Pair := Cons (a, b) | Null",
+            "(Cons: (a:Identifier, b:Identifier):Tuple, Null) Pair:Type"
         );
         parse!(
-            "type Option := Some : 'a | None; let a := Some 42",
-            "((Some:'a, None) Option:Type (define a:Identifier (apply Some:Identifier 42:Integer)))"
+            "type Option := Some x | None; let a := Some 42",
+            "((Some: x:Identifier, None) Option:Type (define a:Identifier (apply Some:Identifier 42:Integer)))"
         );
-        parsefails!("type Option := Some 'a | None", "Trailing characters.");
     }
 }
