@@ -148,7 +148,16 @@ pub fn type_of(ast: &TypedAST) -> Type {
         TypedAST::Function(param, body) => {
             Type::Function(Box::new(type_of(param)), Box::new(type_of(body)))
         }
-        TypedAST::If(_, els) => type_of(els),
+        TypedAST::If(conds, els) => {
+            // Prefer non-recur branches, if possible...
+            for cond in conds {
+                if let TypedAST::Recur(_, _) = &cond.1 {
+                    continue;
+                }
+                return type_of(&cond.1);
+            }
+            type_of(&els)
+        }
         TypedAST::Integer(_) => Type::Integer,
     }
 }
@@ -326,8 +335,22 @@ fn build_constraints(
                     col: *col,
                 });
             }
-
+            ids.insert("recur".to_string(), type_of(&typed_param));
             let typed_body = build_constraints(id, constraints, &mut ids, &body)?;
+
+            // We need to set the recur constraints to match the type of the
+            // body.
+            for constraint in constraints {
+                match &constraint.0 {
+                    Term::Variable(s) => {
+                        if s == "recur" {
+                            constraint.0 = type_to_term(&type_of(&typed_body));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
             Ok(TypedAST::Function(
                 Box::new(typed_param),
                 Box::new(typed_body),
@@ -431,6 +454,23 @@ fn build_constraints(
 
             Ok(TypedAST::UnaryOp(typ, op.clone(), Box::new(typed)))
         }
+        parser::AST::Recur(arg, line, col) => {
+            if let Some(typed_param) = ids.get("recur") {
+                let param_term = type_to_term(typed_param);
+                let typed_arg = build_constraints(id, constraints, &mut ids, &arg)?;
+                constraints.push((param_term, type_to_term(&type_of(&typed_arg)), *line, *col));
+                let typ = fresh_type(id);
+                constraints.push((
+                    Term::Variable("recur".to_string()),
+                    type_to_term(&typ),
+                    *line,
+                    *col,
+                ));
+                Ok(TypedAST::Recur(typ, Box::new(typed_arg)))
+            } else {
+                unreachable!()
+            }
+        }
         parser::AST::Tuple(elements, _, _) => {
             let mut types = Vec::new();
             let mut typed_elements = Vec::new();
@@ -520,6 +560,10 @@ fn substitute<S: ::std::hash::BuildHasher>(
                 substitute(bindings, expr);
             }
         }
+        TypedAST::Recur(typ, arg) => {
+            substitute_in_type(bindings, typ);
+            substitute(bindings, arg);
+        }
         TypedAST::Tuple(typ, elements) => {
             substitute_in_type(bindings, typ);
             for element in elements {
@@ -548,34 +592,43 @@ pub fn infer(
     let mut typed_ast = build_constraints(&mut id, &mut constraints, &mut ids, &ast)?;
     let mut bindings: HashMap<String, Term> = HashMap::new();
     for constraint in constraints {
-        let typ0 = match &constraint.0 {
+        let first = match &constraint.0 {
             Term::Type(typ) => {
                 let mut typ = typ.clone();
                 substitute_in_type(&bindings, &mut typ);
-                typ.to_string()
+                Term::Type(typ)
             }
-            Term::Variable(s) => match bindings.get(s) {
-                Some(typ) => typ.to_string(),
-                _ => s.to_string(),
-            },
+            _ => constraint.0,
         };
-        let typ1 = match &constraint.1 {
+        let second = match &constraint.1 {
             Term::Type(typ) => {
                 let mut typ = typ.clone();
                 substitute_in_type(&bindings, &mut typ);
-                typ.to_string()
+                Term::Type(typ)
             }
-            Term::Variable(s) => match bindings.get(s) {
-                Some(typ) => typ.to_string(),
-                _ => s.to_string(),
-            },
+            _ => constraint.1,
         };
 
-        if !unify(&[constraint.0], &[constraint.1], &mut bindings) {
+        let typ_first = match &first {
+            Term::Variable(s) => match bindings.get(s) {
+                Some(typ) => typ.to_string(),
+                _ => s.to_string(),
+            },
+            _ => first.to_string(),
+        };
+        let typ_second = match &second {
+            Term::Variable(s) => match bindings.get(s) {
+                Some(typ) => typ.to_string(),
+                _ => s.to_string(),
+            },
+            _ => second.to_string(),
+        };
+
+        if !unify(&[first], &[second], &mut bindings) {
             let mut err = "Type error: expected ".to_string();
-            err.push_str(&typ0.to_string());
+            err.push_str(&typ_first);
             err.push_str(" but found ");
-            err.push_str(&typ1.to_string());
+            err.push_str(&typ_second);
             err.push('.');
 
             return Err(InterpreterError {
@@ -709,23 +762,20 @@ mod tests {
         infer!("let x := 1", "integer");
         infer!("let x := false", "boolean");
         infer!("let x := (1, false)", "(integer, boolean)");
-        /*
-                inferfails!(
-                    "let main := fn (n, sum) ->
-                         if n == 1000 then
-                             sum
-                         else
-                             if (n % 3 == 0) || (n % 5 == 0) then
-                                 main(n + 1, sum + n)
-                             else
-                                 main(n + 1, sum)
-                             end
-                         end
-                     end",
-                    "(integer, integer) -> integer", 1, 1
-                );
-
-                infer!("type Maybe := Some : 'a | None", "Maybe");
-        */
+        infer!(
+            "fn (n, sum) ->
+                 if n == 1000 then
+                     sum
+                 else
+                     if (n % 3 == 0) || (n % 5 == 0) then
+                         recur(n + 1, sum + n)
+                     else
+                         recur(n + 1, sum)
+                     end
+                 end
+             end",
+            "(integer, integer) -> integer"
+        );
+        //infer!("type Maybe := Some : 'a | None", "Maybe");
     }
 }
