@@ -323,6 +323,35 @@ fn build_constraints(
 
             Ok(TypedAST::Call(Box::new(typed_fun), Box::new(typed_arg)))
         }
+        parser::AST::Datatype(typ, variants, line, col) => {
+            let mut typed_variants = Vec::new();
+            for variant in variants {
+                match &variant.1 {
+                    Some(param) => {
+                        // Type for constructor function
+                        let typed_param = build_constraints(id, constraints, &mut ids, &param)?;
+                        ids.insert(
+                            variant.0.to_string(),
+                            Type::Function(
+                                Box::new(type_of(&typed_param)),
+                                Box::new(Type::Datatype(typ.to_string())),
+                            ),
+                        );
+                        typed_variants
+                            .push((variant.0.to_string(), Type::Datatype(typ.to_string())));
+                    }
+                    None => {
+                        ids.insert(variant.0.to_string(), Type::Datatype(typ.to_string()));
+                        typed_variants
+                            .push((variant.0.to_string(), Type::Datatype(typ.to_string())));
+                    }
+                }
+            }
+            Ok(TypedAST::Datatype(
+                Type::Datatype(typ.to_string()),
+                typed_variants,
+            ))
+        }
         parser::AST::Function(param, body, line, col) => {
             let mut ids = ids.clone();
             let typed_param = build_constraints(id, constraints, &mut ids, &param)?;
@@ -776,6 +805,38 @@ mod tests {
              end",
             "(integer, integer) -> integer"
         );
-        //infer!("type Maybe := Some : 'a | None", "Maybe");
+        infer!("type Maybe := Some x | None", "Maybe");
+        infer!(
+            "type E := A | B;
+             (fn x -> A end)",
+            "t1 -> E"
+        );
+        infer!(
+            "type E := A | B;
+             (fn x -> A end) 10",
+            "E"
+        );
+        infer!(
+            "type E := A | B;
+             (fn x -> if x then A else B end end) true",
+            "E"
+        );
+        infer!(
+            "let f := fn x -> x + 1 end;
+             (fn x -> f x end) 10",
+            "integer"
+        );
+        infer!(
+            "type E := A x | B;
+             (fn x -> A x end) 10",
+            "E"
+        );
+        /*
+                inferfails!(
+                    "type E := A(x,y) | B;
+                     (fn x -> A(x,x) end) 10",
+                    "E",1,1
+                );
+        */
     }
 }

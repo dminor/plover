@@ -624,36 +624,22 @@ mod tests {
             Boolean,
             false
         );
-        /*
-                eval!(
-                    "let main := fn (n, sum) ->
-                         if n == 1000 then
-                             sum
-                         else
-                             if (n % 3 == 0) || (n % 5 == 0) then
-                                 recur (n + 1, sum + n)
-                             else
-                                 recur (n + 1, sum)
-                             end
-                         end
-                     end;
+        eval!(
+            "let main := fn (n, sum) ->
+                 if n == 1000 then
+                     sum
+                 else
+                     if (n % 3 == 0) || (n % 5 == 0) then
+                         recur (n + 1, sum + n)
+                     else
+                         recur (n + 1, sum)
+                     end
+                 end
+             end;
 
-                     main(0, 0)",
-                    Integer,
-                    233168
-                );
-                eval!(
-                    "type Maybe := Some : 'a | None;
-                     Some 42;",
-                    Datatype,
-                    Box::new(vm::Value::Integer(42))
-                );
-                eval!(
-                    "type Maybe := Some : 'a | None;
-                     None;",
-                    Datatype,
-                    Box::new(vm::Value::Unit)
-                );
-        */
+             main(0, 0)",
+            Integer,
+            233168
+        );
     }
 }
