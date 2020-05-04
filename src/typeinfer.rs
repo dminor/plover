@@ -272,15 +272,12 @@ fn build_constraints(
                     Some(param) => {
                         // Type for constructor function
                         let typed_param = build_constraints(id, constraints, &mut ids, &param)?;
-                        ids.insert(
-                            variant.0.to_string(),
-                            Type::Function(
-                                Box::new(type_of(&typed_param)),
-                                Box::new(Type::Datatype(typ.to_string())),
-                            ),
+                        let typ = Type::Function(
+                            Box::new(type_of(&typed_param)),
+                            Box::new(Type::Datatype(typ.to_string())),
                         );
-                        typed_variants
-                            .push((variant.0.to_string(), Type::Datatype(typ.to_string())));
+                        ids.insert(variant.0.to_string(), typ.clone());
+                        typed_variants.push((variant.0.to_string(), typ));
                     }
                     None => {
                         ids.insert(variant.0.to_string(), Type::Datatype(typ.to_string()));

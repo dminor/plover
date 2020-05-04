@@ -169,12 +169,10 @@ fn generate(
                     instr.push(vm::Opcode::SetEnv(variant.0.to_string()));
                 } else {
                     let mut fn_instr = Vec::new();
-                    let mut count = 2;
-
                     fn_instr.push(vm::Opcode::Dup);
                     fn_instr.push(vm::Opcode::Dconst(typ.to_string(), variant.0.to_string()));
 
-                    fn_instr.push(vm::Opcode::Ret(count - 1));
+                    fn_instr.push(vm::Opcode::Ret(1));
                     let ip = vm.instructions.len();
                     vm.instructions.extend(fn_instr);
                     instr.push(vm::Opcode::Fconst(ip, HashMap::new()));
@@ -638,6 +636,25 @@ mod tests {
              main(0, 0)",
             Integer,
             233168
+        );
+        eval!(
+            "type Maybe := Some x | None;
+             None",
+            Datatype,
+            Box::new(vm::Value::Unit)
+        );
+        eval!(
+            "type Maybe := Some x | None;
+             Some 42",
+            Datatype,
+            Box::new(vm::Value::Integer(42))
+        );
+        eval!(
+            "type Maybe := Some x | None;
+             let f := fn x -> Some x end;
+             f 42",
+            Datatype,
+            Box::new(vm::Value::Integer(42))
         );
     }
 }
