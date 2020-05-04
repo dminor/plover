@@ -3,7 +3,7 @@ use std::fmt;
 
 use crate::codegen::InterpreterError;
 use crate::parser;
-use crate::unification::{unify, Term};
+use crate::unification::unify;
 
 #[derive(Clone, Debug)]
 pub enum Type {
@@ -168,14 +168,6 @@ fn fresh_type(id: &mut u64) -> Type {
     typ
 }
 
-fn type_to_term(typ: &Type) -> Term {
-    if let Type::Polymorphic(s) = typ {
-        Term::Variable(s.to_string())
-    } else {
-        Term::Type(typ.clone())
-    }
-}
-
 fn add_params_to_ids(ids: &mut HashMap<String, Type>, param: &TypedAST) -> bool {
     match param {
         TypedAST::Identifier(typ, s) => {
@@ -196,7 +188,7 @@ fn add_params_to_ids(ids: &mut HashMap<String, Type>, param: &TypedAST) -> bool 
 
 fn build_constraints(
     id: &mut u64,
-    constraints: &mut Vec<(Term, Term, usize, usize)>,
+    constraints: &mut Vec<(Type, Type, usize, usize)>,
     mut ids: &mut HashMap<String, Type>,
     ast: &parser::AST,
 ) -> Result<TypedAST, InterpreterError> {
@@ -208,65 +200,30 @@ fn build_constraints(
             let typ = fresh_type(id);
             match op {
                 parser::Operator::And | parser::Operator::Or => {
-                    constraints.push((
-                        Term::Type(Type::Boolean),
-                        type_to_term(&type_of(&typed_lhs)),
-                        *line,
-                        *col,
-                    ));
-                    constraints.push((
-                        Term::Type(Type::Boolean),
-                        type_to_term(&type_of(&typed_rhs)),
-                        *line,
-                        *col,
-                    ));
-                    constraints.push((type_to_term(&typ), Term::Type(Type::Boolean), *line, *col));
+                    constraints.push((Type::Boolean, type_of(&typed_lhs), *line, *col));
+                    constraints.push((Type::Boolean, type_of(&typed_rhs), *line, *col));
+                    constraints.push((typ.clone(), Type::Boolean, *line, *col));
                 }
                 parser::Operator::Divide
                 | parser::Operator::Mod
                 | parser::Operator::Multiply
                 | parser::Operator::Minus
                 | parser::Operator::Plus => {
-                    constraints.push((
-                        Term::Type(Type::Integer),
-                        type_to_term(&type_of(&typed_lhs)),
-                        *line,
-                        *col,
-                    ));
-                    constraints.push((
-                        Term::Type(Type::Integer),
-                        type_to_term(&type_of(&typed_rhs)),
-                        *line,
-                        *col,
-                    ));
-                    constraints.push((type_to_term(&typ), Term::Type(Type::Integer), *line, *col));
+                    constraints.push((Type::Integer, type_of(&typed_lhs), *line, *col));
+                    constraints.push((Type::Integer, type_of(&typed_rhs), *line, *col));
+                    constraints.push((typ.clone(), Type::Integer, *line, *col));
                 }
                 parser::Operator::Greater
                 | parser::Operator::GreaterEqual
                 | parser::Operator::Less
                 | parser::Operator::LessEqual => {
-                    constraints.push((
-                        Term::Type(Type::Integer),
-                        type_to_term(&type_of(&typed_lhs)),
-                        *line,
-                        *col,
-                    ));
-                    constraints.push((
-                        Term::Type(Type::Integer),
-                        type_to_term(&type_of(&typed_rhs)),
-                        *line,
-                        *col,
-                    ));
-                    constraints.push((type_to_term(&typ), Term::Type(Type::Boolean), *line, *col));
+                    constraints.push((Type::Integer, type_of(&typed_lhs), *line, *col));
+                    constraints.push((Type::Integer, type_of(&typed_rhs), *line, *col));
+                    constraints.push((typ.clone(), Type::Boolean, *line, *col));
                 }
                 parser::Operator::Equal | parser::Operator::NotEqual => {
-                    constraints.push((
-                        type_to_term(&type_of(&typed_lhs)),
-                        type_to_term(&type_of(&typed_rhs)),
-                        *line,
-                        *col,
-                    ));
-                    constraints.push((type_to_term(&typ), Term::Type(Type::Boolean), *line, *col));
+                    constraints.push((type_of(&typed_lhs), type_of(&typed_rhs), *line, *col));
+                    constraints.push((typ.clone(), Type::Boolean, *line, *col));
                 }
                 _ => unreachable!(),
             }
@@ -288,29 +245,14 @@ fn build_constraints(
             match &typed_fun {
                 TypedAST::Call(fun, arg) => {
                     if let TypedAST::Function(_, body) = &**fun {
-                        constraints.push((
-                            type_to_term(&type_of(&body)),
-                            type_to_term(&type_of(&typed_arg)),
-                            *line,
-                            *col,
-                        ));
+                        constraints.push((type_of(&body), type_of(&typed_arg), *line, *col));
                     }
                 }
                 TypedAST::Function(params, body) => {
-                    constraints.push((
-                        type_to_term(&type_of(&params)),
-                        type_to_term(&type_of(&typed_arg)),
-                        *line,
-                        *col,
-                    ));
+                    constraints.push((type_of(&params), type_of(&typed_arg), *line, *col));
                 }
                 TypedAST::Identifier(Type::Function(params, _), _) => {
-                    constraints.push((
-                        type_to_term(&params),
-                        type_to_term(&type_of(&typed_arg)),
-                        *line,
-                        *col,
-                    ));
+                    constraints.push((*params.clone(), type_of(&typed_arg), *line, *col));
                 }
                 _ => {
                     return Err(InterpreterError {
@@ -371,9 +313,9 @@ fn build_constraints(
             // body.
             for constraint in constraints {
                 match &constraint.0 {
-                    Term::Variable(s) => {
+                    Type::Polymorphic(s) => {
                         if s == "recur" {
-                            constraint.0 = type_to_term(&type_of(&typed_body));
+                            constraint.0 = type_of(&typed_body);
                         }
                     }
                     _ => {}
@@ -396,33 +338,18 @@ fn build_constraints(
             for cond in conds {
                 let ifpart = build_constraints(id, constraints, ids, &cond.0)?;
                 let thenpart = build_constraints(id, constraints, ids, &cond.1)?;
-                constraints.push((
-                    Term::Type(Type::Boolean),
-                    type_to_term(&type_of(&ifpart)),
-                    *line,
-                    *col,
-                ));
+                constraints.push((Type::Boolean, type_of(&ifpart), *line, *col));
                 if first {
                     first = false;
                     inferred_type = type_of(&thenpart);
                 } else {
-                    constraints.push((
-                        Term::Type(inferred_type.clone()),
-                        type_to_term(&type_of(&thenpart)),
-                        *line,
-                        *col,
-                    ));
+                    constraints.push((inferred_type.clone(), type_of(&thenpart), *line, *col));
                 }
 
                 typed_conds.push((ifpart, thenpart));
             }
             let elsepart = build_constraints(id, constraints, ids, &els)?;
-            constraints.push((
-                Term::Type(inferred_type),
-                type_to_term(&type_of(&elsepart)),
-                *line,
-                *col,
-            ));
+            constraints.push((inferred_type, type_of(&elsepart), *line, *col));
             Ok(TypedAST::If(typed_conds, Box::new(elsepart)))
         }
         parser::AST::Integer(i, _, _) => Ok(TypedAST::Integer(*i)),
@@ -452,12 +379,7 @@ fn build_constraints(
             match typed_expressions.last() {
                 Some(expr) => {
                     let typ = fresh_type(id);
-                    constraints.push((
-                        type_to_term(&typ),
-                        type_to_term(&type_of(expr)),
-                        *line,
-                        *col,
-                    ));
+                    constraints.push((typ, type_of(expr), *line, *col));
                     Ok(TypedAST::Program(type_of(expr), typed_expressions))
                 }
                 None => unreachable!(),
@@ -472,26 +394,21 @@ fn build_constraints(
                 _ => unreachable!(),
             };
 
-            constraints.push((
-                Term::Type(op_typ.clone()),
-                type_to_term(&type_of(&typed)),
-                *line,
-                *col,
-            ));
+            constraints.push((op_typ.clone(), type_of(&typed), *line, *col));
 
-            constraints.push((type_to_term(&typ), Term::Type(op_typ), *line, *col));
+            constraints.push((typ.clone(), op_typ, *line, *col));
 
             Ok(TypedAST::UnaryOp(typ, op.clone(), Box::new(typed)))
         }
         parser::AST::Recur(arg, line, col) => {
             if let Some(typed_param) = ids.get("recur") {
-                let param_term = type_to_term(typed_param);
+                let typed_param = typed_param.clone();
                 let typed_arg = build_constraints(id, constraints, &mut ids, &arg)?;
-                constraints.push((param_term, type_to_term(&type_of(&typed_arg)), *line, *col));
+                constraints.push((typed_param.clone(), type_of(&typed_arg), *line, *col));
                 let typ = fresh_type(id);
                 constraints.push((
-                    Term::Variable("recur".to_string()),
-                    type_to_term(&typ),
+                    Type::Polymorphic("recur".to_string()),
+                    typ.clone(),
                     *line,
                     *col,
                 ));
@@ -514,21 +431,14 @@ fn build_constraints(
     }
 }
 
-fn term_to_type(term: &Term) -> Type {
-    match term {
-        Term::Type(typ) => typ.clone(),
-        Term::Variable(s) => Type::Polymorphic(s.to_string()),
-    }
-}
-
 fn substitute_in_type<S: ::std::hash::BuildHasher>(
-    bindings: &HashMap<String, Term, S>,
+    bindings: &HashMap<String, Type, S>,
     typ: &mut Type,
 ) {
     match typ {
         Type::Polymorphic(s) => {
             if let Some(subst) = bindings.get(s) {
-                *typ = term_to_type(subst);
+                *typ = subst.clone();
             }
         }
         Type::Function(param, body) => {
@@ -545,14 +455,14 @@ fn substitute_in_type<S: ::std::hash::BuildHasher>(
 }
 
 fn substitute<S: ::std::hash::BuildHasher>(
-    bindings: &HashMap<String, Term, S>,
+    bindings: &HashMap<String, Type, S>,
     ast: &mut TypedAST,
 ) -> () {
     match ast {
         TypedAST::BinaryOp(typ, _, lhs, rhs, _, _) => {
             if let Type::Polymorphic(s) = typ {
                 if let Some(subst) = bindings.get(s) {
-                    *typ = term_to_type(subst);
+                    *typ = subst.clone();
                 }
             }
             substitute(bindings, lhs);
@@ -569,7 +479,7 @@ fn substitute<S: ::std::hash::BuildHasher>(
         TypedAST::Identifier(typ, s) => {
             if let Type::Polymorphic(s) = typ {
                 if let Some(subst) = bindings.get(s) {
-                    *typ = term_to_type(subst);
+                    *typ = subst.clone();
                 }
             }
         }
@@ -602,7 +512,7 @@ fn substitute<S: ::std::hash::BuildHasher>(
         TypedAST::UnaryOp(typ, op, ast) => {
             if let Type::Polymorphic(s) = typ {
                 if let Some(subst) = bindings.get(s) {
-                    *typ = term_to_type(subst);
+                    *typ = subst.clone();
                 }
             }
             substitute(bindings, ast);
@@ -619,41 +529,13 @@ pub fn infer(
     let mut constraints = Vec::new();
 
     let mut typed_ast = build_constraints(&mut id, &mut constraints, &mut ids, &ast)?;
-    let mut bindings: HashMap<String, Term> = HashMap::new();
-    for constraint in constraints {
-        let first = match &constraint.0 {
-            Term::Type(typ) => {
-                let mut typ = typ.clone();
-                substitute_in_type(&bindings, &mut typ);
-                Term::Type(typ)
-            }
-            _ => constraint.0,
-        };
-        let second = match &constraint.1 {
-            Term::Type(typ) => {
-                let mut typ = typ.clone();
-                substitute_in_type(&bindings, &mut typ);
-                Term::Type(typ)
-            }
-            _ => constraint.1,
-        };
-
-        let typ_first = match &first {
-            Term::Variable(s) => match bindings.get(s) {
-                Some(typ) => typ.to_string(),
-                _ => s.to_string(),
-            },
-            _ => first.to_string(),
-        };
-        let typ_second = match &second {
-            Term::Variable(s) => match bindings.get(s) {
-                Some(typ) => typ.to_string(),
-                _ => s.to_string(),
-            },
-            _ => second.to_string(),
-        };
-
-        if !unify(&[first], &[second], &mut bindings) {
+    let mut bindings: HashMap<String, Type> = HashMap::new();
+    for mut constraint in constraints {
+        substitute_in_type(&bindings, &mut constraint.0);
+        substitute_in_type(&bindings, &mut constraint.1);
+        let typ_first = constraint.0.to_string();
+        let typ_second = constraint.1.to_string();
+        if !unify(&[constraint.0], &[constraint.1], &mut bindings) {
             let mut err = "Type error: expected ".to_string();
             err.push_str(&typ_first);
             err.push_str(" but found ");
@@ -831,12 +713,10 @@ mod tests {
              (fn x -> A x end) 10",
             "E"
         );
-        /*
-                inferfails!(
-                    "type E := A(x,y) | B;
-                     (fn x -> A(x,x) end) 10",
-                    "E",1,1
-                );
-        */
+        infer!(
+            "type E := A(x,y) | B;
+             (fn x -> A(x,x) end) 10",
+            "E"
+        );
     }
 }

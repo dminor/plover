@@ -605,11 +605,10 @@ mod tests {
             Boolean,
             false
         );
-        eval!(
+        evalfails!(
             "let f := fn (x, y) -> x == y end;
              f (1, false)",
-            Boolean,
-            false
+            "Type error: expected (t2, t2) but found (integer, boolean)."
         );
         eval!(
             "let f := fn (x, y) -> x == y end;
@@ -617,12 +616,11 @@ mod tests {
             Boolean,
             true
         );
-        eval!(
+        evalfails!(
             "let f := fn (x, y) -> x == y end;
              let g := fn (x, y) -> x == y end;
              f (f, g)",
-            Boolean,
-            false
+            "Type error: expected (t2, t2) but found ((t2, t2) -> boolean, (t6, t6) -> boolean)."
         );
         eval!(
             "let main := fn (n, sum) ->

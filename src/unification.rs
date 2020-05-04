@@ -3,66 +3,49 @@ use std::fmt;
 
 use crate::typeinfer::Type;
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum Term {
-    Type(Type),
-    Variable(String),
-}
-
-impl fmt::Display for Term {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Term::Type(s) => write!(f, "{}", s),
-            Term::Variable(s) => write!(f, "{}", s),
-        }
-    }
-}
-
 fn unify_variable<S: ::std::hash::BuildHasher>(
     var: &str,
-    x: &Term,
-    bindings: &mut HashMap<String, Term, S>,
+    x: &Type,
+    bindings: &mut HashMap<String, Type, S>,
 ) -> bool {
     match x {
-        Term::Type(s) => match bindings.get(var) {
-            Some(Term::Type(t)) => s == t,
-            Some(Term::Variable(t)) => {
-                unify_variable(&t.to_string(), &Term::Type(s.clone()), bindings)
-            }
-            None => {
-                bindings.insert(var.to_string(), Term::Type(s.clone()));
-                true
-            }
-        },
-        Term::Variable(s) => match bindings.get(var) {
-            Some(Term::Type(t)) => {
-                let s = s.to_string();
-                let t = t.clone();
-                bindings.insert(s, Term::Type(t));
-                true
-            }
-            Some(Term::Variable(t)) => {
+        Type::Polymorphic(s) => match bindings.get(var) {
+            Some(Type::Polymorphic(t)) => {
                 if s == t {
                     true
                 } else {
-                    unify_variable(&t.to_string(), &Term::Variable(s.to_string()), bindings)
+                    unify_variable(&t.to_string(), &Type::Polymorphic(s.to_string()), bindings)
                 }
+            }
+            Some(t) => {
+                let s = s.to_string();
+                let t = t.clone();
+                bindings.insert(s, t);
+                true
             }
             None => match bindings.get(s) {
                 Some(token) => unify_variable(&s.to_string(), &token.clone(), bindings),
                 None => {
-                    bindings.insert(var.to_string(), Term::Variable(s.to_string()));
+                    bindings.insert(var.to_string(), Type::Polymorphic(s.to_string()));
                     true
                 }
             },
+        },
+        s => match bindings.get(var) {
+            Some(Type::Polymorphic(t)) => unify_variable(&t.to_string(), s, bindings),
+            Some(t) => s == t,
+            None => {
+                bindings.insert(var.to_string(), s.clone());
+                true
+            }
         },
     }
 }
 
 pub fn unify<S: ::std::hash::BuildHasher>(
-    x: &[Term],
-    y: &[Term],
-    bindings: &mut HashMap<String, Term, S>,
+    x: &[Type],
+    y: &[Type],
+    bindings: &mut HashMap<String, Type, S>,
 ) -> bool {
     let mut x_iter = x.iter();
     let mut y_iter = y.iter();
@@ -70,20 +53,31 @@ pub fn unify<S: ::std::hash::BuildHasher>(
 
     while matched {
         match x_iter.next() {
-            Some(Term::Type(s)) => match y_iter.next() {
-                Some(Term::Type(t)) => {
-                    matched = s == t;
-                }
-                Some(Term::Variable(t)) => {
-                    matched = unify_variable(t, &Term::Type(s.clone()), bindings);
+            Some(Type::Polymorphic(s)) => match y_iter.next() {
+                Some(token) => {
+                    matched = unify_variable(s, &token, bindings);
                 }
                 None => {
                     matched = false;
                 }
             },
-            Some(Term::Variable(s)) => match y_iter.next() {
-                Some(token) => {
-                    matched = unify_variable(s, &token, bindings);
+            Some(Type::Tuple(s_elements)) => match y_iter.next() {
+                Some(Type::Polymorphic(t)) => {
+                    matched = unify_variable(t, &Type::Tuple(s_elements.to_vec()), bindings);
+                }
+                Some(Type::Tuple(t_elements)) => {
+                    matched = unify(&s_elements[..], &t_elements[..], bindings);
+                }
+                _ => {
+                    matched = false;
+                }
+            },
+            Some(s) => match y_iter.next() {
+                Some(Type::Polymorphic(t)) => {
+                    matched = unify_variable(t, s, bindings);
+                }
+                Some(t) => {
+                    matched = s == t;
                 }
                 None => {
                     matched = false;
@@ -107,32 +101,32 @@ mod tests {
 
     #[test]
     fn unifications() {
-        let x = vec![Term::Type(Type::Integer), Term::Type(Type::Integer)];
+        let x = vec![Type::Integer, Type::Integer];
 
-        let mut bindings: HashMap<String, Term> = HashMap::new();
+        let mut bindings: HashMap<String, Type> = HashMap::new();
         assert!(unify(&x, &x, &mut bindings));
         assert_eq!(bindings.len(), 0);
 
-        let y = vec![Term::Type(Type::Integer), Term::Type(Type::Unit)];
+        let y = vec![Type::Integer, Type::Unit];
 
-        let mut bindings: HashMap<String, Term> = HashMap::new();
+        let mut bindings: HashMap<String, Type> = HashMap::new();
         assert!(!unify(&x, &y, &mut bindings));
         assert_eq!(bindings.len(), 0);
 
-        let y = vec![Term::Variable("'a".to_string()), Term::Type(Type::Integer)];
+        let y = vec![Type::Polymorphic("'a".to_string()), Type::Integer];
 
-        let mut bindings: HashMap<String, Term> = HashMap::new();
+        let mut bindings: HashMap<String, Type> = HashMap::new();
         assert!(unify(&x, &y, &mut bindings));
         assert_eq!(bindings.len(), 1);
-        assert_eq!(bindings.get("'a"), Some(&Term::Type(Type::Integer)));
+        assert_eq!(bindings.get("'a"), Some(&Type::Integer));
 
         let y = vec![
-            Term::Variable("'a".to_string()),
-            Term::Type(Type::Integer),
-            Term::Type(Type::Integer),
+            Type::Polymorphic("'a".to_string()),
+            Type::Integer,
+            Type::Integer,
         ];
 
-        let mut bindings: HashMap<String, Term> = HashMap::new();
+        let mut bindings: HashMap<String, Type> = HashMap::new();
         assert!(!unify(&x, &y, &mut bindings));
     }
 }
