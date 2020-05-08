@@ -170,22 +170,59 @@ fn fresh_type(id: &mut u64) -> Type {
     typ
 }
 
-fn add_params_to_ids(ids: &mut HashMap<String, Type>, param: &TypedAST) -> bool {
-    match param {
-        TypedAST::Identifier(typ, s) => {
-            ids.insert(s.clone(), typ.clone());
-            true
-        }
-        TypedAST::Tuple(typ, elements) => {
-            for element in elements {
-                if !add_params_to_ids(ids, element) {
-                    return false;
+fn build_param_constraints(
+    id: &mut u64,
+    constraints: &mut Vec<(Type, Type, usize, usize)>,
+    ids: &mut HashMap<String, Type>,
+    ast: &parser::AST,
+    insert_into_ids: bool,
+) -> Result<TypedAST, InterpreterError> {
+    match ast {
+        parser::AST::Identifier(s, _, _) => match ids.get(s) {
+            Some(typ) => {
+                let typ = typ.clone();
+                if insert_into_ids {
+                    ids.insert(s.clone(), typ.clone());
                 }
+                return Ok(TypedAST::Identifier(typ, s.clone()));
             }
-            true
+            None => {
+                let typ = fresh_type(id);
+                if insert_into_ids {
+                    ids.insert(s.clone(), typ.clone());
+                }
+                return Ok(TypedAST::Identifier(typ, s.clone()));
+            }
+        },
+        parser::AST::Tuple(elements, _, _) => {
+            let mut types = Vec::new();
+            let mut typed_elements = Vec::new();
+            for element in elements {
+                let typed_element =
+                    build_param_constraints(id, constraints, ids, &element, insert_into_ids)?;
+                types.push(type_of(&typed_element));
+                typed_elements.push(typed_element);
+            }
+            Ok(TypedAST::Tuple(Type::Tuple(types), typed_elements))
         }
-        TypedAST::Unit => true,
-        _ => false,
+        parser::AST::Unit(_, _) => Ok(TypedAST::Unit),
+        parser::AST::BinaryOp(_, _, _, line, col)
+        | parser::AST::Boolean(_, line, col)
+        | parser::AST::Call(_, _, line, col)
+        | parser::AST::Datatype(_, _, line, col)
+        | parser::AST::Define(_, _, line, col)
+        | parser::AST::Function(_, _, line, col)
+        | parser::AST::If(_, _, line, col)
+        | parser::AST::Integer(_, line, col)
+        | parser::AST::Program(_, line, col)
+        | parser::AST::Recur(_, line, col)
+        | parser::AST::UnaryOp(_, _, line, col) => Err(InterpreterError {
+            err: "Type error: lambda parameter must be identifier or tuple of identifiers."
+                .to_string(),
+            line: *line,
+            col: *col,
+        }),
+        parser::AST::None => unreachable!(),
     }
 }
 
@@ -274,7 +311,8 @@ fn build_constraints(
                 match &variant.1 {
                     Some(param) => {
                         // Type for constructor function
-                        let typed_param = build_constraints(id, constraints, &mut ids, &param)?;
+                        let typed_param =
+                            build_param_constraints(id, constraints, &mut ids, &param, false)?;
                         let typ = Type::Function(
                             Box::new(type_of(&typed_param)),
                             Box::new(Type::Datatype(typ.to_string())),
@@ -313,16 +351,7 @@ fn build_constraints(
         }
         parser::AST::Function(param, body, line, col) => {
             let mut ids = ids.clone();
-            let typed_param = build_constraints(id, constraints, &mut ids, &param)?;
-
-            if !add_params_to_ids(&mut ids, &typed_param) {
-                return Err(InterpreterError {
-                    err: "Type error: lambda parameter must be identifier or tuple of identifiers."
-                        .to_string(),
-                    line: *line,
-                    col: *col,
-                });
-            }
+            let typed_param = build_param_constraints(id, constraints, &mut ids, &param, true)?;
             ids.insert("recur".to_string(), type_of(&typed_param));
             let typed_body = build_constraints(id, constraints, &mut ids, &body)?;
 
@@ -344,9 +373,18 @@ fn build_constraints(
                 Box::new(typed_body),
             ))
         }
-        parser::AST::Identifier(s, _, _) => match ids.get(s) {
+        parser::AST::Identifier(s, line, col) => match ids.get(s) {
             Some(typ) => Ok(TypedAST::Identifier(typ.clone(), s.clone())),
-            None => Ok(TypedAST::Identifier(fresh_type(id), s.clone())),
+            None => {
+                let mut err = "Unknown identifier: ".to_string();
+                err.push_str(s);
+                err.push('.');
+                return Err(InterpreterError {
+                    err: err.to_string(),
+                    line: *line,
+                    col: *col,
+                });
+            }
         },
         parser::AST::If(conds, els, line, col) => {
             let mut first = true;
@@ -616,8 +654,6 @@ mod tests {
         infer!("true && false", "boolean");
         infer!("~false", "boolean");
         infer!("-1", "integer");
-        infer!("-a", "integer");
-        infer!("~a", "boolean");
         inferfails!(
             "~1",
             "Type error: expected boolean but found integer.",
@@ -630,20 +666,17 @@ mod tests {
             1,
             14
         );
-        infer!("a + 1", "integer");
-        infer!("a - 1", "integer");
-        infer!("a * 1", "integer");
-        infer!("a / 1", "integer");
-        infer!("2 % a", "integer");
-        infer!("1 < a", "boolean");
-        infer!("1 <= a", "boolean");
-        infer!("1 + 2 <= a", "boolean");
-        infer!("a + 1 <= b", "boolean");
-        infer!("a + b", "integer");
-        infer!("a + b < c", "boolean");
-        infer!("a + b == c", "boolean");
-        infer!("a + b == c", "boolean");
-        infer!("a == -b", "boolean");
+        infer!("1 + 1", "integer");
+        infer!("1 - 1", "integer");
+        infer!("1 * 1", "integer");
+        infer!("1 / 1", "integer");
+        infer!("2 % 1", "integer");
+        infer!("1 < 1", "boolean");
+        infer!("1 <= 1", "boolean");
+        infer!("1 + 2 <= 1", "boolean");
+        infer!("1 + 2 >= 1", "boolean");
+        infer!("1 + 2 == 3", "boolean");
+        infer!("1 == -1", "boolean");
         infer!("if true then 1 else 2 end", "integer");
         inferfails!(
             "if 1 then 1 else 2 end",
@@ -652,7 +685,8 @@ mod tests {
             23
         );
         infer!("(1, false)", "(integer, boolean)");
-        infer!("(1, a, false)", "(integer, t1, boolean)");
+        inferfails!("a + 1", "Unknown identifier: a.", 1, 1);
+        inferfails!("(1, a, false)", "Unknown identifier: a.", 1, 5);
         infer!("fn x -> x + 1 end", "integer -> integer");
         infer!("fn (x, y) -> x + y end", "(integer, integer) -> integer");
         infer!("fn x -> (x, x + 1) end", "integer -> (integer, integer)");
