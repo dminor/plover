@@ -922,7 +922,7 @@ fn identifier(ps: ParseState) -> ParseResult {
     }
     if !s.is_empty() {
         match &s[..] {
-            "if" | "else" | "elsif" | "end" | "fn" | "then" => ParseResult::NotMatched(lps),
+            "if" | "def" | "else" | "elsif" | "end" | "fn" | "then" => ParseResult::NotMatched(lps),
             _ => ParseResult::Matched(AST::Identifier(s, ps.line, ps.col), lps),
         }
     } else {
