@@ -357,11 +357,11 @@ pub enum AST {
     Boolean(bool, usize, usize),
     Call(Box<AST>, Box<AST>, usize, usize),
     Datatype(String, Vec<(String, Option<AST>)>, usize, usize),
+    Define(Box<AST>, Box<AST>, usize, usize),
     Function(Box<AST>, Box<AST>, usize, usize),
     Identifier(String, usize, usize),
     If(Vec<(AST, AST)>, Box<AST>, usize, usize),
     Integer(i64, usize, usize),
-    Let(Box<AST>, Box<AST>, usize, usize),
     Program(Vec<AST>, usize, usize),
     Recur(Box<AST>, usize, usize),
     Tuple(Vec<AST>, usize, usize),
@@ -389,6 +389,7 @@ impl fmt::Display for AST {
                 }
                 write!(f, ") {}:Type", name)
             }
+            AST::Define(id, value, _, _) => write!(f, "(define {} {})", id, value),
             AST::Function(param, body, _, _) => write!(f, "(fn {} {})", param, body),
             AST::Identifier(id, _, _) => write!(f, "{}:Identifier", id),
             AST::If(conds, els, _, _) => {
@@ -399,7 +400,6 @@ impl fmt::Display for AST {
                 write!(f, "(else {}))", els)
             }
             AST::Integer(n, _, _) => write!(f, "{}:Integer", n),
-            AST::Let(id, value, _, _) => write!(f, "(define {} {})", id, value),
             AST::Program(expressions, _, _) => {
                 if expressions.len() > 1 {
                     write!(f, "(")?;
@@ -500,7 +500,7 @@ fn program(ps: ParseState) -> ParseResult {
 }
 
 fn expression(ps: ParseState) -> ParseResult {
-    or!(ps, datatype, conditional, letexpr, equality)
+    or!(ps, datatype, conditional, define, equality)
 }
 
 fn conditional(ps: ParseState) -> ParseResult {
@@ -595,10 +595,10 @@ fn conditional(ps: ParseState) -> ParseResult {
     }
 }
 
-fn letexpr(ps: ParseState) -> ParseResult {
+fn define(ps: ParseState) -> ParseResult {
     let mut lps = ps.clone();
     lps = skip!(lps, whitespace);
-    match expect!(lps, "let") {
+    match expect!(lps, "def") {
         Some(_) => {
             lps = skip!(lps, whitespace);
             match value(lps) {
@@ -607,7 +607,7 @@ fn letexpr(ps: ParseState) -> ParseResult {
                     if assignment!(lps) {
                         match expression(lps) {
                             ParseResult::Matched(value, ps) => ParseResult::Matched(
-                                AST::Let(Box::new(id), Box::new(value), ps.line, ps.col),
+                                AST::Define(Box::new(id), Box::new(value), ps.line, ps.col),
                                 ps,
                             ),
                             ParseResult::NotMatched(ps) => ParseResult::Error(
@@ -1170,27 +1170,27 @@ mod tests {
             "fn x -> x + 1 end 1",
             "(apply (fn x:Identifier (+ x:Identifier 1:Integer)) 1:Integer)"
         );
-        parse!("let x := 1", "(define x:Identifier 1:Integer)");
+        parse!("def x := 1", "(define x:Identifier 1:Integer)");
         parse!(
-            "let f := fn x -> x + 1 end",
+            "def f := fn x -> x + 1 end",
             "(define f:Identifier (fn x:Identifier (+ x:Identifier 1:Integer)))"
         );
         parse!(
-            "let t := (1, 2, 3)",
+            "def t := (1, 2, 3)",
             "(define t:Identifier (1:Integer, 2:Integer, 3:Integer):Tuple)"
         );
         parse!(
-            "let x := 1;
-             let y := 2",
+            "def x := 1;
+             def y := 2",
             "((define x:Identifier 1:Integer) (define y:Identifier 2:Integer))"
         );
         parse!(
-            "let x := 1;
-             let y := 2;",
+            "def x := 1;
+             def y := 2;",
             "((define x:Identifier 1:Integer) (define y:Identifier 2:Integer))"
         );
         parse!(
-            "let f := fn x -> let t := 2; x + t end",
+            "def f := fn x -> def t := 2; x + t end",
             "(define f:Identifier (fn x:Identifier ((define t:Identifier 2:Integer) (+ x:Identifier t:Identifier))))"
         );
 
@@ -1204,7 +1204,7 @@ mod tests {
             "(Cons: (a:Identifier, b:Identifier):Tuple, Null) Pair:Type"
         );
         parse!(
-            "type Option := Some x | None; let a := Some 42",
+            "type Option := Some x | None; def a := Some 42",
             "((Some: x:Identifier, None) Option:Type (define a:Identifier (apply Some:Identifier 42:Integer)))"
         );
         parse!("()", "():Unit");

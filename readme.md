@@ -51,7 +51,7 @@ Keywords
 --------
 
 The following are reserved keywords: *else*, *elsif*, *end*, *false*,
-*fn*, *if*, *let*, *recur*, *then* and *true*.
+*fn*, *if*, *def*, *recur*, *then* and *true*.
 
 Values
 ------
@@ -76,8 +76,8 @@ Lexical closures are supported and it is possible for a function to return anoth
 function:
 
 ```
-let adder := fn t -> fn x -> x + t end end;
-let f := adder 1;
+def adder := fn t -> fn x -> x + t end end;
+def f := adder 1;
 f 2;
 ```
 
@@ -119,16 +119,16 @@ else
 end
 ```
 
-### Let
+### Define
 
-Let expressions are used to introduce variables. All variables are
-immutable, but it is possible to shadow a previous let expression. The
-value of a let expression is the value that is assigned to the variable.
+Define expressions are used to introduce variables. All variables are
+immutable, but it is possible to shadow a previous define expression. The
+value of a define expression is the value that is assigned to the variable.
 
 ```
-let x := 1;
-let x := false;
-let y := let z := 42;
+def x := 1;
+def x := false;
+def y := def z := 42;
 ```
 
 ### Function Calls
@@ -137,6 +137,6 @@ A function call consists of a function value followed by the valueto which the
 function is applied.
 
 ```
-let f := fn x -> x + 1 end;
+def f := fn x -> x + 1 end;
 f 1
 ```

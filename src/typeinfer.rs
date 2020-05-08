@@ -119,11 +119,11 @@ pub enum TypedAST {
     Boolean(bool),
     Call(Box<TypedAST>, Box<TypedAST>),
     Datatype(Type, Vec<(String, Type)>),
+    Define(Type, String, Box<TypedAST>),
     Function(Box<TypedAST>, Box<TypedAST>),
     Identifier(Type, String),
     If(Vec<(TypedAST, TypedAST)>, Box<TypedAST>),
     Integer(i64),
-    Let(Type, String, Box<TypedAST>),
     Program(Type, Vec<TypedAST>),
     Recur(Type, Box<TypedAST>),
     Tuple(Type, Vec<TypedAST>),
@@ -135,8 +135,8 @@ pub fn type_of(ast: &TypedAST) -> Type {
     match ast {
         TypedAST::BinaryOp(typ, _, _, _, _, _)
         | TypedAST::Datatype(typ, _)
+        | TypedAST::Define(typ, _, _)
         | TypedAST::Identifier(typ, _)
-        | TypedAST::Let(typ, _, _)
         | TypedAST::Program(typ, _)
         | TypedAST::Recur(typ, _)
         | TypedAST::Tuple(typ, _)
@@ -294,6 +294,23 @@ fn build_constraints(
                 typed_variants,
             ))
         }
+        parser::AST::Define(ident, value, line, col) => {
+            if let parser::AST::Identifier(ident, line, col) = &**ident {
+                let typed_value = build_constraints(id, constraints, ids, &value)?;
+                ids.insert(ident.to_string(), type_of(&typed_value));
+                Ok(TypedAST::Define(
+                    type_of(&typed_value),
+                    ident.clone(),
+                    Box::new(typed_value),
+                ))
+            } else {
+                Err(InterpreterError {
+                    err: "Type error: expected identifier.".to_string(),
+                    line: *line,
+                    col: *col,
+                })
+            }
+        }
         parser::AST::Function(param, body, line, col) => {
             let mut ids = ids.clone();
             let typed_param = build_constraints(id, constraints, &mut ids, &param)?;
@@ -353,23 +370,6 @@ fn build_constraints(
             Ok(TypedAST::If(typed_conds, Box::new(elsepart)))
         }
         parser::AST::Integer(i, _, _) => Ok(TypedAST::Integer(*i)),
-        parser::AST::Let(ident, value, line, col) => {
-            if let parser::AST::Identifier(ident, line, col) = &**ident {
-                let typed_value = build_constraints(id, constraints, ids, &value)?;
-                ids.insert(ident.to_string(), type_of(&typed_value));
-                Ok(TypedAST::Let(
-                    type_of(&typed_value),
-                    ident.clone(),
-                    Box::new(typed_value),
-                ))
-            } else {
-                Err(InterpreterError {
-                    err: "Type error: expected identifier.".to_string(),
-                    line: *line,
-                    col: *col,
-                })
-            }
-        }
         parser::AST::Program(expressions, line, col) => {
             let mut typed_expressions = Vec::new();
             for expr in expressions {
@@ -473,6 +473,9 @@ fn substitute<S: ::std::hash::BuildHasher>(
             substitute(bindings, fun);
             substitute(bindings, args);
         }
+        TypedAST::Define(_, _, value) => {
+            substitute(bindings, value);
+        }
         TypedAST::Function(param, body) => {
             substitute(bindings, param);
             substitute(bindings, body);
@@ -490,9 +493,6 @@ fn substitute<S: ::std::hash::BuildHasher>(
                 substitute(bindings, &mut cond.1);
             }
             substitute(bindings, els);
-        }
-        TypedAST::Let(_, _, value) => {
-            substitute(bindings, value);
         }
         TypedAST::Program(typ, expressions) => {
             substitute_in_type(bindings, typ);
@@ -671,9 +671,9 @@ mod tests {
             1,
             8
         );
-        infer!("let x := 1", "integer");
-        infer!("let x := false", "boolean");
-        infer!("let x := (1, false)", "(integer, boolean)");
+        infer!("def x := 1", "integer");
+        infer!("def x := false", "boolean");
+        infer!("def x := (1, false)", "(integer, boolean)");
         infer!(
             "fn (n, sum) ->
                  if n == 1000 then
@@ -705,7 +705,7 @@ mod tests {
             "E"
         );
         infer!(
-            "let f := fn x -> x + 1 end;
+            "def f := fn x -> x + 1 end;
              (fn x -> f x end) 10",
             "integer"
         );

@@ -34,6 +34,13 @@ fn find_upvalues(
             find_upvalues(fun, ids, upvalues);
             find_upvalues(args, ids, upvalues);
         }
+        TypedAST::Define(_, id, value) => {
+            // Shadow id while it is in scope
+            if let Some(_) = ids.get(id) {
+                ids.remove(id);
+            }
+            find_upvalues(value, ids, upvalues);
+        }
         TypedAST::Function(param, body) => {
             let mut local_ids = ids.clone();
             find_upvalues(param, &mut local_ids, upvalues);
@@ -52,13 +59,6 @@ fn find_upvalues(
             }
             None => {}
         },
-        TypedAST::Let(_, id, value) => {
-            // Shadow id while it is in scope
-            if let Some(_) = ids.get(id) {
-                ids.remove(id);
-            }
-            find_upvalues(value, ids, upvalues);
-        }
         TypedAST::Program(_, expressions) => {
             for expression in expressions {
                 find_upvalues(expression, ids, upvalues);
@@ -181,6 +181,11 @@ fn generate(
             }
             instr.push(vm::Opcode::Uconst);
         }
+        TypedAST::Define(_, id, value) => {
+            generate(&value, vm, instr, ids);
+            instr.push(vm::Opcode::Dup);
+            instr.push(vm::Opcode::SetEnv(id.to_string()));
+        }
         TypedAST::Function(param, body) => {
             let mut fn_instr = Vec::new();
             let mut local_ids = ids.clone();
@@ -255,11 +260,6 @@ fn generate(
         },
         TypedAST::Integer(i) => {
             instr.push(vm::Opcode::Iconst(*i));
-        }
-        TypedAST::Let(_, id, value) => {
-            generate(&value, vm, instr, ids);
-            instr.push(vm::Opcode::Dup);
-            instr.push(vm::Opcode::SetEnv(id.to_string()));
         }
         TypedAST::Program(_, expressions) => {
             for i in 0..expressions.len() {
@@ -599,54 +599,54 @@ mod tests {
         eval!("(1, 1, 1, 1) == (1, 1, 1, 0)", Boolean, false);
         eval!("(1, 1, 1, 1) == (1, 1, 1, 1)", Boolean, true);
         eval!("(1, 1) ~= (1, 0)", Boolean, true);
-        eval!("let x := 42", Integer, 42);
-        eval!("let f := fn x -> x + 1 end 1", Integer, 2);
+        eval!("def x := 42", Integer, 42);
+        eval!("def f := fn x -> x + 1 end 1", Integer, 2);
         eval!(
-            "let t := 1;
-             let f := fn x -> x + t end;
-             let t := 2;
+            "def t := 1;
+             def f := fn x -> x + t end;
+             def t := 2;
              f 1;",
             Integer,
             2
         );
         eval!(
-            "let t := 1;
-             let f := fn x -> let t := 2; x + t end;
+            "def t := 1;
+             def f := fn x -> def t := 2; x + t end;
              f 1;",
             Integer,
             3
         );
         eval!(
-            "let f := fn t -> fn x -> x + t end end;
+            "def f := fn t -> fn x -> x + t end end;
              (f 2) 1;",
             Integer,
             3
         );
         eval!(
-            "let f := fn (x, y) -> x == y end;
+            "def f := fn (x, y) -> x == y end;
              f (1, 2)",
             Boolean,
             false
         );
         evalfails!(
-            "let f := fn (x, y) -> x == y end;
+            "def f := fn (x, y) -> x == y end;
              f (1, false)",
             "Type error: expected (t2, t2) but found (integer, boolean)."
         );
         eval!(
-            "let f := fn (x, y) -> x == y end;
+            "def f := fn (x, y) -> x == y end;
              f (1, 1)",
             Boolean,
             true
         );
         evalfails!(
-            "let f := fn (x, y) -> x == y end;
-             let g := fn (x, y) -> x == y end;
+            "def f := fn (x, y) -> x == y end;
+             def g := fn (x, y) -> x == y end;
              f (f, g)",
             "Type error: expected (t2, t2) but found ((t2, t2) -> boolean, (t6, t6) -> boolean)."
         );
         eval!(
-            "let main := fn (n, sum) ->
+            "def main := fn (n, sum) ->
                  if n == 1000 then
                      sum
                  else
@@ -676,7 +676,7 @@ mod tests {
         );
         eval!(
             "type Maybe := Some x | None;
-             let f := fn x -> Some x end;
+             def f := fn x -> Some x end;
              f 42",
             Datatype,
             Box::new(vm::Value::Integer(42))
