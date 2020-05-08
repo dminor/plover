@@ -128,6 +128,7 @@ pub enum TypedAST {
     Recur(Type, Box<TypedAST>),
     Tuple(Type, Vec<TypedAST>),
     UnaryOp(Type, parser::Operator, Box<TypedAST>),
+    Unit,
 }
 
 pub fn type_of(ast: &TypedAST) -> Type {
@@ -159,6 +160,7 @@ pub fn type_of(ast: &TypedAST) -> Type {
             type_of(&els)
         }
         TypedAST::Integer(_) => Type::Integer,
+        TypedAST::Unit => Type::Unit,
     }
 }
 
@@ -182,6 +184,7 @@ fn add_params_to_ids(ids: &mut HashMap<String, Type>, param: &TypedAST) -> bool 
             }
             true
         }
+        TypedAST::Unit => true,
         _ => false,
     }
 }
@@ -424,6 +427,7 @@ fn build_constraints(
             }
             Ok(TypedAST::Tuple(Type::Tuple(types), typed_elements))
         }
+        parser::AST::Unit(_, _) => Ok(TypedAST::Unit),
         _ => unreachable!(),
     }
 }

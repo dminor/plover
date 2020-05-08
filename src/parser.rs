@@ -17,7 +17,7 @@ multiplication -> unary ( ( "/" | "*" | "|" | "%" | "&&" ) unary )*
 unary          -> ( "~" | "-" ) unary | call
 recur          -> recur value | call
 call           -> value value | value
-value          -> IDENTIFIER | INTEGER | STRING | "false" | "true"
+value          -> IDENTIFIER | INTEGER | STRING | "false" | "true" | "()"
                   | "(" expression "," ( expression )* ")"
                   | "(" expression ")"
                   | "fn" ( IDENTIFIER ","? )* -> expression end
@@ -366,6 +366,7 @@ pub enum AST {
     Recur(Box<AST>, usize, usize),
     Tuple(Vec<AST>, usize, usize),
     UnaryOp(Operator, Box<AST>, usize, usize),
+    Unit(usize, usize),
     None,
 }
 
@@ -426,6 +427,7 @@ impl fmt::Display for AST {
                 write!(f, "):Tuple")
             }
             AST::UnaryOp(op, ast, _, _) => write!(f, "({} {})", op, ast),
+            AST::Unit(_, _) => write!(f, "():Unit"),
             AST::None => write!(f, "None"),
         }
     }
@@ -805,6 +807,7 @@ fn value(ps: ParseState) -> ParseResult {
         ps,
         boolean,
         function,
+        unit,
         tuple,
         identifier,
         integer,
@@ -972,6 +975,21 @@ fn parenthesized_expression(ps: ParseState) -> ParseResult {
     }
 }
 
+fn unit(ps: ParseState) -> ParseResult {
+    let mut lps = ps.clone();
+    lps = skip!(lps, whitespace);
+    if let Some('(') = lps.next() {
+        lps = skip!(lps, whitespace);
+        if let Some(')') = lps.next() {
+            ParseResult::Matched(AST::Unit(ps.line, ps.col), lps)
+        } else {
+            ParseResult::NotMatched(ps)
+        }
+    } else {
+        ParseResult::NotMatched(ps)
+    }
+}
+
 fn tuple(ps: ParseState) -> ParseResult {
     let mut lps = ps.clone();
     let mut elements = Vec::new();
@@ -1041,7 +1059,7 @@ pub fn parse(src: &str) -> ParseResult {
                 ParseResult::Matched(parsed, ps)
             }
         }
-        ParseResult::NotMatched(ps) => unreachable!(),
+        ParseResult::NotMatched(_) => unreachable!(),
         ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
     }
 }
@@ -1189,5 +1207,7 @@ mod tests {
             "type Option := Some x | None; let a := Some 42",
             "((Some: x:Identifier, None) Option:Type (define a:Identifier (apply Some:Identifier 42:Integer)))"
         );
+        parse!("()", "():Unit");
+        parse!("(   )", "():Unit");
     }
 }

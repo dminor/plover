@@ -198,6 +198,9 @@ fn generate(
                         count += 1;
                     }
                 }
+                TypedAST::Unit => {
+                    count = 1;
+                }
                 _ => unreachable!(),
             }
 
@@ -291,6 +294,9 @@ fn generate(
                 }
                 _ => unreachable!(),
             }
+        }
+        TypedAST::Unit => {
+            instr.push(vm::Opcode::Uconst);
         }
     }
 }
@@ -399,6 +405,25 @@ mod tests {
                         _ => {
                             assert!(false);
                         }
+                    },
+                    Err(_) => {
+                        assert!(false);
+                    }
+                },
+                parser::ParseResult::NotMatched(_) => {
+                    assert!(false);
+                }
+                parser::ParseResult::Error(_, _, _) => {
+                    assert!(false);
+                }
+            }
+        }};
+        ($input:expr, Unit) => {{
+            let mut vm = vm::VirtualMachine::new();
+            match parser::parse($input) {
+                parser::ParseResult::Matched(ast, _) => match codegen::eval(&mut vm, &ast) {
+                    Ok(v) => {
+                        assert_eq!(v, Value::Unit);
                     },
                     Err(_) => {
                         assert!(false);
@@ -656,5 +681,8 @@ mod tests {
             Datatype,
             Box::new(vm::Value::Integer(42))
         );
+        eval!("()", Unit);
+        eval!("fn () -> 42 end ()", Integer, 42);
+        eval!("fn () -> () end ()", Unit);
     }
 }
