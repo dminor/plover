@@ -278,7 +278,7 @@ fn generate(
             instr.push(vm::Opcode::Recur(n));
         }
         TypedAST::Tuple(_, elements) => {
-            for element in elements {
+            for element in elements.iter().rev() {
                 generate(&element, vm, instr, ids);
             }
         }
@@ -315,7 +315,6 @@ fn to_typed_value(vm: &mut vm::VirtualMachine, typ: &Type) -> Option<vm::Value> 
                     }
                 }
             }
-            values.reverse();
             Some(vm::Value::Tuple(values))
         }
         _ => match vm.stack.pop() {
@@ -646,23 +645,6 @@ mod tests {
             "Type error: expected (t2, t2) but found ((t2, t2) -> boolean, (t6, t6) -> boolean)."
         );
         eval!(
-            "def main := fn (n, sum) ->
-                 if n == 1000 then
-                     sum
-                 else
-                     if (n % 3 == 0) || (n % 5 == 0) then
-                         recur (n + 1, sum + n)
-                     else
-                         recur (n + 1, sum)
-                     end
-                 end
-             end;
-
-             main(0, 0)",
-            Integer,
-            233168
-        );
-        eval!(
             "type Maybe := Some x | None;
              None",
             Datatype,
@@ -684,5 +666,18 @@ mod tests {
         eval!("()", Unit);
         eval!("fn () -> 42 end ()", Integer, 42);
         eval!("fn () -> () end ()", Unit);
+        eval!(
+            "def f := fn (x, y) ->
+                 if x == 1 then
+                     true
+                 else
+                     false
+                 end
+             end;
+             f (1, 0)
+        ",
+            Boolean,
+            true
+        );
     }
 }
