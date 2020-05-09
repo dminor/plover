@@ -358,7 +358,7 @@ pub enum AST {
     Call(Box<AST>, Box<AST>, usize, usize),
     Datatype(String, Vec<(String, Option<AST>)>, usize, usize),
     Define(Box<AST>, Box<AST>, usize, usize),
-    Function(Box<AST>, Box<AST>, usize, usize),
+    Function(Option<String>, Box<AST>, Box<AST>, usize, usize),
     Identifier(String, usize, usize),
     If(Vec<(AST, AST)>, Box<AST>, usize, usize),
     Integer(i64, usize, usize),
@@ -390,7 +390,13 @@ impl fmt::Display for AST {
                 write!(f, ") {}:Type", name)
             }
             AST::Define(id, value, _, _) => write!(f, "(define {} {})", id, value),
-            AST::Function(param, body, _, _) => write!(f, "(fn {} {})", param, body),
+            AST::Function(id, param, body, _, _) => {
+                if let Some(id) = id {
+                    write!(f, "({} {} {})", id, param, body)
+                } else {
+                    write!(f, "(fn {} {})", param, body)
+                }
+            }
             AST::Identifier(id, _, _) => write!(f, "{}:Identifier", id),
             AST::If(conds, els, _, _) => {
                 write!(f, "(if ")?;
@@ -858,7 +864,7 @@ fn function(ps: ParseState) -> ParseResult {
     if let Some(_) = expect!(lps, "fn") {
         lps = skip!(lps, whitespace);
         match value(lps) {
-            ParseResult::Matched(param, ps) => {
+            ParseResult::Matched(id_or_param, ps) => {
                 lps = skip!(ps, whitespace);
                 if arrow!(lps) {
                     match program(lps) {
@@ -867,7 +873,8 @@ fn function(ps: ParseState) -> ParseResult {
                             if let Some(_) = expect!(lps, "end") {
                                 ParseResult::Matched(
                                     AST::Function(
-                                        Box::new(param),
+                                        None,
+                                        Box::new(id_or_param),
                                         Box::new(body),
                                         lps.line,
                                         lps.col,
@@ -884,7 +891,58 @@ fn function(ps: ParseState) -> ParseResult {
                         ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
                     }
                 } else {
-                    ParseResult::Error("Expected ->.".to_string(), lps.line, lps.col)
+                    match value(lps) {
+                        ParseResult::Matched(param, ps) => {
+                            lps = skip!(ps, whitespace);
+                            if arrow!(lps) {
+                                match program(lps) {
+                                    ParseResult::Matched(body, ps) => {
+                                        lps = ps;
+                                        if let Some(_) = expect!(lps, "end") {
+                                            if let AST::Identifier(id, _, _) = id_or_param {
+                                                ParseResult::Matched(
+                                                    AST::Function(
+                                                        Some(id),
+                                                        Box::new(param),
+                                                        Box::new(body),
+                                                        lps.line,
+                                                        lps.col,
+                                                    ),
+                                                    lps,
+                                                )
+                                            } else {
+                                                ParseResult::Error(
+                                                    "Function name must be identifier.".to_string(),
+                                                    lps.line,
+                                                    lps.col,
+                                                )
+                                            }
+                                        } else {
+                                            ParseResult::Error(
+                                                "Expected end.".to_string(),
+                                                lps.line,
+                                                lps.col,
+                                            )
+                                        }
+                                    }
+                                    ParseResult::NotMatched(ps) => ParseResult::Error(
+                                        "Expected expression.".to_string(),
+                                        ps.line,
+                                        ps.col,
+                                    ),
+                                    ParseResult::Error(err, line, col) => {
+                                        ParseResult::Error(err, line, col)
+                                    }
+                                }
+                            } else {
+                                ParseResult::Error("Expected ->.".to_string(), lps.line, lps.col)
+                            }
+                        }
+                        ParseResult::NotMatched(ps) => {
+                            ParseResult::Error("Expected expression.".to_string(), ps.line, ps.col)
+                        }
+                        ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
+                    }
                 }
             }
             ParseResult::NotMatched(ps) => {
@@ -1209,5 +1267,10 @@ mod tests {
         );
         parse!("()", "():Unit");
         parse!("(   )", "():Unit");
+        parse!("fn f () -> () end", "(f ():Unit ():Unit)");
+        parse!(
+            "fn f x -> x + 1 end",
+            "(f x:Identifier (+ x:Identifier 1:Integer))"
+        );
     }
 }

@@ -2,6 +2,7 @@ use crate::parser;
 use crate::typeinfer::{infer, type_of, Type, TypedAST};
 use crate::vm;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
 
@@ -41,7 +42,7 @@ fn find_upvalues(
             }
             find_upvalues(value, ids, upvalues);
         }
-        TypedAST::Function(param, body) => {
+        TypedAST::Function(_, param, body) => {
             let mut local_ids = ids.clone();
             find_upvalues(param, &mut local_ids, upvalues);
             find_upvalues(body, &mut local_ids, upvalues);
@@ -63,9 +64,6 @@ fn find_upvalues(
             for expression in expressions {
                 find_upvalues(expression, ids, upvalues);
             }
-        }
-        TypedAST::Recur(_, args) => {
-            find_upvalues(args, ids, upvalues);
         }
         TypedAST::Tuple(_, elements) => {
             for element in elements {
@@ -175,7 +173,7 @@ fn generate(
                     fn_instr.push(vm::Opcode::Ret(1));
                     let ip = vm.instructions.len();
                     vm.instructions.extend(fn_instr);
-                    instr.push(vm::Opcode::Fconst(ip, HashMap::new()));
+                    instr.push(vm::Opcode::Fconst(None, ip, HashMap::new()));
                     instr.push(vm::Opcode::SetEnv(variant.0.to_string()));
                 }
             }
@@ -186,19 +184,22 @@ fn generate(
             instr.push(vm::Opcode::Dup);
             instr.push(vm::Opcode::SetEnv(id.to_string()));
         }
-        TypedAST::Function(param, body) => {
+        TypedAST::Function(id, param, body) => {
             let mut fn_instr = Vec::new();
             let mut local_ids = ids.clone();
+            let mut param_ids = HashSet::new();
             let mut count = 0;
             match &**param {
                 TypedAST::Identifier(_, id) => {
                     count = 2;
                     local_ids.insert(id.to_string(), 0);
+                    param_ids.insert(id.to_string());
                 }
                 TypedAST::Tuple(_, elements) => {
                     for element in elements {
                         if let TypedAST::Identifier(_, id) = element {
                             local_ids.insert(id.to_string(), count);
+                            param_ids.insert(id.to_string());
                         }
                         count += 1;
                     }
@@ -217,6 +218,9 @@ fn generate(
             find_upvalues(body, &mut upvalue_ids, &mut upvalues);
             for upvalue in &upvalues {
                 let id = upvalue.0;
+                if param_ids.contains(id) {
+                    continue;
+                }
                 if let Some(_) = ids.get(id) {
                     local_ids.remove(id);
                 }
@@ -226,7 +230,12 @@ fn generate(
             fn_instr.push(vm::Opcode::Ret(count - 1));
             let ip = vm.instructions.len();
             vm.instructions.extend(fn_instr);
-            instr.push(vm::Opcode::Fconst(ip, upvalues));
+            instr.push(vm::Opcode::Fconst(id.clone(), ip, upvalues));
+
+            if let Some(id) = id {
+                instr.push(vm::Opcode::Dup);
+                instr.push(vm::Opcode::SetEnv(id.to_string()));
+            }
         }
         TypedAST::If(conds, els) => {
             let start_ip = instr.len();
@@ -268,14 +277,6 @@ fn generate(
                     instr.push(vm::Opcode::Pop);
                 }
             }
-        }
-        TypedAST::Recur(_, arg) => {
-            generate(arg, vm, instr, ids);
-            let mut n = 1;
-            if let TypedAST::Tuple(_, elements) = &**arg {
-                n = elements.len();
-            }
-            instr.push(vm::Opcode::Recur(n));
         }
         TypedAST::Tuple(_, elements) => {
             for element in elements.iter().rev() {
@@ -678,6 +679,36 @@ mod tests {
         ",
             Boolean,
             true
+        );
+        eval!("fn f x -> x + 1 end; f 1", Integer, 2);
+        eval!(
+            "fn fact (n, acc) ->
+                 if n == 0 then
+                    acc
+                 else
+                    fact(n - 1, n*acc)
+                 end
+             end;
+             fact (5, 1)
+        ",
+            Integer,
+            120
+        );
+        eval!(
+            "fn fact n ->
+                fn iter (n, acc) ->
+                     if n == 0 then
+                        acc
+                     else
+                        iter(n - 1, n*acc)
+                     end
+                end;
+                iter (n, 1)
+             end;
+             fact 5
+        ",
+            Integer,
+            120
         );
     }
 }

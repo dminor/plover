@@ -36,14 +36,6 @@ part of a language come alive in an interpreter, and that was a lot slower
 in Schönfinkel. I plan to learn a lot more about logic programming and unification
 before tackling another type system.
 
-Like Scoundrel, Schönfinkel has a *recur* keyword inspired by Clojure. This was quite
-a bit of a hack to get working in Scoundrel where it ended up being a separate
-value returned from an expression that was caught to allow a function to call
-itself recursively without growing the stack. The virtual machine in Schönfinkel
-made implementation much more natural, where the arguments are replaced on the
-stack and a jmp call is used to restart the function. The *recur* keyword is
-necessary because all functions in Schönfinkel are anonymous.
-
 The language is named after
 [Moses Schönfinkel](https://en.wikipedia.org/wiki/Moses_Sch%C3%B6nfinkel), a logician.
 
@@ -51,7 +43,7 @@ Keywords
 --------
 
 The following are reserved keywords: *else*, *elsif*, *end*, *false*,
-*fn*, *if*, *def*, *recur*, *then* and *true*.
+*fn*, *if*, *def*, *then* and *true*.
 
 Values
 ------
@@ -79,6 +71,22 @@ function:
 def adder := fn t -> fn x -> x + t end end;
 def f := adder 1;
 f 2;
+```
+
+Functions can optionally take a name which is defined inside the body to allow
+for recursive calls.
+
+```
+fn fact n ->
+    fn iter (n, acc) ->
+        if n == 0 then
+            acc
+        else
+            iter(n - 1, n*acc)
+        end
+    end;
+    iter (n, 1)
+end
 ```
 
 ### Number

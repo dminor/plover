@@ -120,12 +120,11 @@ pub enum TypedAST {
     Call(Box<TypedAST>, Box<TypedAST>),
     Datatype(Type, Vec<(String, Type)>),
     Define(Type, String, Box<TypedAST>),
-    Function(Box<TypedAST>, Box<TypedAST>),
+    Function(Option<String>, Box<TypedAST>, Box<TypedAST>),
     Identifier(Type, String),
     If(Vec<(TypedAST, TypedAST)>, Box<TypedAST>),
     Integer(i64),
     Program(Type, Vec<TypedAST>),
-    Recur(Type, Box<TypedAST>),
     Tuple(Type, Vec<TypedAST>),
     UnaryOp(Type, parser::Operator, Box<TypedAST>),
     Unit,
@@ -138,7 +137,6 @@ pub fn type_of(ast: &TypedAST) -> Type {
         | TypedAST::Define(typ, _, _)
         | TypedAST::Identifier(typ, _)
         | TypedAST::Program(typ, _)
-        | TypedAST::Recur(typ, _)
         | TypedAST::Tuple(typ, _)
         | TypedAST::UnaryOp(typ, _, _) => typ.clone(),
         TypedAST::Boolean(_) => Type::Boolean,
@@ -146,19 +144,10 @@ pub fn type_of(ast: &TypedAST) -> Type {
             Type::Function(_, body) => *body.clone(),
             _ => unreachable!(),
         },
-        TypedAST::Function(param, body) => {
+        TypedAST::Function(_, param, body) => {
             Type::Function(Box::new(type_of(param)), Box::new(type_of(body)))
         }
-        TypedAST::If(conds, els) => {
-            // Prefer non-recur branches, if possible...
-            for cond in conds {
-                if let TypedAST::Recur(_, _) = &cond.1 {
-                    continue;
-                }
-                return type_of(&cond.1);
-            }
-            type_of(&els)
-        }
+        TypedAST::If(conds, els) => type_of(&els),
         TypedAST::Integer(_) => Type::Integer,
         TypedAST::Unit => Type::Unit,
     }
@@ -211,7 +200,7 @@ fn build_param_constraints(
         | parser::AST::Call(_, _, line, col)
         | parser::AST::Datatype(_, _, line, col)
         | parser::AST::Define(_, _, line, col)
-        | parser::AST::Function(_, _, line, col)
+        | parser::AST::Function(_, _, _, line, col)
         | parser::AST::If(_, _, line, col)
         | parser::AST::Integer(_, line, col)
         | parser::AST::Program(_, line, col)
@@ -284,11 +273,11 @@ fn build_constraints(
 
             match &typed_fun {
                 TypedAST::Call(fun, arg) => {
-                    if let TypedAST::Function(_, body) = &**fun {
+                    if let TypedAST::Function(_, _, body) = &**fun {
                         constraints.push((type_of(&body), type_of(&typed_arg), *line, *col));
                     }
                 }
-                TypedAST::Function(params, body) => {
+                TypedAST::Function(_, params, body) => {
                     constraints.push((type_of(&params), type_of(&typed_arg), *line, *col));
                 }
                 TypedAST::Identifier(Type::Function(params, _), _) => {
@@ -349,32 +338,33 @@ fn build_constraints(
                 })
             }
         }
-        parser::AST::Function(param, body, line, col) => {
-            let mut ids = ids.clone();
-            let typed_param = build_param_constraints(id, constraints, &mut ids, &param, true)?;
-            ids.insert("recur".to_string(), type_of(&typed_param));
-            let typed_body = build_constraints(id, constraints, &mut ids, &body)?;
-
-            // We need to set the recur constraints to match the type of the
-            // body.
-            for constraint in constraints {
-                match &constraint.0 {
-                    Type::Polymorphic(s) => {
-                        if s == "recur" {
-                            constraint.0 = type_of(&typed_body);
-                        }
-                    }
-                    _ => {}
-                }
+        parser::AST::Function(ident, param, body, line, col) => {
+            let mut local_ids = ids.clone();
+            let typed_param =
+                build_param_constraints(id, constraints, &mut local_ids, &param, true)?;
+            if let Some(ident) = ident {
+                let typ = fresh_type(id);
+                ids.insert(
+                    ident.to_string(),
+                    Type::Function(Box::new(type_of(&typed_param)), Box::new(typ.clone())),
+                );
+                local_ids.insert(
+                    ident.to_string(),
+                    Type::Function(Box::new(type_of(&typed_param)), Box::new(typ)),
+                );
             }
+            let typed_body = build_constraints(id, constraints, &mut local_ids, &body)?;
 
             Ok(TypedAST::Function(
+                ident.clone(),
                 Box::new(typed_param),
                 Box::new(typed_body),
             ))
         }
         parser::AST::Identifier(s, line, col) => match ids.get(s) {
-            Some(typ) => Ok(TypedAST::Identifier(typ.clone(), s.clone())),
+            Some(typ) => {
+                return Ok(TypedAST::Identifier(typ.clone(), s.clone()));
+            }
             None => {
                 let mut err = "Unknown identifier: ".to_string();
                 err.push_str(s);
@@ -438,23 +428,6 @@ fn build_constraints(
 
             Ok(TypedAST::UnaryOp(typ, op.clone(), Box::new(typed)))
         }
-        parser::AST::Recur(arg, line, col) => {
-            if let Some(typed_param) = ids.get("recur") {
-                let typed_param = typed_param.clone();
-                let typed_arg = build_constraints(id, constraints, &mut ids, &arg)?;
-                constraints.push((typed_param.clone(), type_of(&typed_arg), *line, *col));
-                let typ = fresh_type(id);
-                constraints.push((
-                    Type::Polymorphic("recur".to_string()),
-                    typ.clone(),
-                    *line,
-                    *col,
-                ));
-                Ok(TypedAST::Recur(typ, Box::new(typed_arg)))
-            } else {
-                unreachable!()
-            }
-        }
         parser::AST::Tuple(elements, _, _) => {
             let mut types = Vec::new();
             let mut typed_elements = Vec::new();
@@ -514,7 +487,7 @@ fn substitute<S: ::std::hash::BuildHasher>(
         TypedAST::Define(_, _, value) => {
             substitute(bindings, value);
         }
-        TypedAST::Function(param, body) => {
+        TypedAST::Function(_, param, body) => {
             substitute(bindings, param);
             substitute(bindings, body);
         }
@@ -537,10 +510,6 @@ fn substitute<S: ::std::hash::BuildHasher>(
             for expr in expressions {
                 substitute(bindings, expr);
             }
-        }
-        TypedAST::Recur(typ, arg) => {
-            substitute_in_type(bindings, typ);
-            substitute(bindings, arg);
         }
         TypedAST::Tuple(typ, elements) => {
             substitute_in_type(bindings, typ);
@@ -709,15 +678,11 @@ mod tests {
         infer!("def x := false", "boolean");
         infer!("def x := (1, false)", "(integer, boolean)");
         infer!(
-            "fn (n, sum) ->
-                 if n == 1000 then
-                     sum
+            "fn fact (n, acc) ->
+                 if n == 0 then
+                    acc
                  else
-                     if (n % 3 == 0) || (n % 5 == 0) then
-                         recur(n + 1, sum + n)
-                     else
-                         recur(n + 1, sum)
-                     end
+                    fact(n - 1, n*acc)
                  end
              end",
             "(integer, integer) -> integer"
@@ -752,6 +717,19 @@ mod tests {
             "type E := A(x,y) | B;
              (fn x -> A(x,x) end) 10",
             "E"
+        );
+        infer!(
+            "fn fact n ->
+                 fn iter(n, acc) ->
+                    if n == 0 then
+                       acc
+                    else
+                       iter(n - 1, n*acc)
+                    end
+                 end;
+                 iter(5, 1)
+             end",
+            "integer -> integer"
         );
     }
 }

@@ -24,7 +24,11 @@ pub enum Opcode {
     Dup,
     Equal,
     Dconst(String, String),
-    Fconst(usize, HashMap<String, (usize, typeinfer::Type)>),
+    Fconst(
+        Option<String>,
+        usize,
+        HashMap<String, (usize, typeinfer::Type)>,
+    ),
     GetEnv(String),
     Greater,
     GreaterEqual,
@@ -39,7 +43,6 @@ pub enum Opcode {
     NotEqual,
     Or,
     Pop,
-    Recur(usize),
     Ret(usize),
     Rot,
     SetEnv(String),
@@ -60,7 +63,13 @@ impl fmt::Display for Opcode {
             Opcode::Dup => write!(f, "dup"),
             Opcode::Equal => write!(f, "eq"),
             Opcode::Dconst(typ, ctor) => write!(f, "const {}", ctor),
-            Opcode::Fconst(ip, _) => write!(f, "lambda @{}", ip),
+            Opcode::Fconst(id, ip, _) => {
+                if let Some(id) = id {
+                    write!(f, "{} @{}", id, ip)
+                } else {
+                    write!(f, "lambda @{}", ip)
+                }
+            }
             Opcode::GetEnv(id) => write!(f, "getenv {}", id),
             Opcode::Greater => write!(f, "gt"),
             Opcode::GreaterEqual => write!(f, "ge"),
@@ -75,7 +84,6 @@ impl fmt::Display for Opcode {
             Opcode::NotEqual => write!(f, "neq"),
             Opcode::Or => write!(f, "or"),
             Opcode::Pop => write!(f, "pop"),
-            Opcode::Recur(n) => write!(f, "recur {}", n),
             Opcode::Ret(n) => write!(f, "ret {}", n),
             Opcode::Rot => write!(f, "rot"),
             Opcode::SetEnv(id) => write!(f, "setenv {}", id),
@@ -88,6 +96,7 @@ impl fmt::Display for Opcode {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Environment {
+    pub fun: Option<(String, usize)>,
     pub values: HashMap<String, Value>,
     pub types: HashMap<String, typeinfer::Type>,
 }
@@ -95,6 +104,7 @@ pub struct Environment {
 impl Environment {
     pub fn new() -> Environment {
         Environment {
+            fun: None,
             values: HashMap::new(),
             types: HashMap::new(),
         }
@@ -230,13 +240,17 @@ impl VirtualMachine {
                     }
                     _ => unreachable!(),
                 },
-                Opcode::Fconst(ip, upvalues) => {
+                Opcode::Fconst(id, ip, upvalues) => {
                     let len = self.callstack.len();
                     let mut env;
                     if len > 0 {
                         env = self.callstack[len - 1].1.clone();
                     } else {
                         env = self.env.clone();
+                    }
+                    if let Some((ident, ip)) = &env.fun {
+                        env.values
+                            .insert(ident.to_string(), Value::Function(*ip, env.clone()));
                     }
                     for upvalue in upvalues {
                         match self.callstack.last() {
@@ -250,21 +264,32 @@ impl VirtualMachine {
                             None => {}
                         }
                     }
+                    if let Some(id) = id {
+                        env.fun = Some((id.clone(), *ip));
+                    }
                     self.stack.push(Value::Function(*ip, env));
                 }
                 Opcode::GetEnv(id) => {
                     let len = self.callstack.len();
-                    let values;
+                    let env;
                     if len > 0 {
-                        values = &self.callstack[len - 1].1.values;
+                        env = &self.callstack[len - 1].1;
                     } else {
-                        values = &self.env.values;
+                        env = &self.env;
                     }
-                    match values.get(id) {
+                    match env.values.get(id) {
                         Some(x) => {
                             self.stack.push(x.clone());
                         }
-                        None => unreachable!(),
+                        None => {
+                            if let Some((ident, ip)) = &env.fun {
+                                if id == ident {
+                                    self.stack.push(Value::Function(*ip, env.clone()));
+                                }
+                            } else {
+                                unreachable!()
+                            }
+                        }
                     }
                 }
                 Opcode::Greater => match self.stack.pop() {
@@ -367,20 +392,6 @@ impl VirtualMachine {
                 Opcode::Pop => match self.stack.pop() {
                     Some(_) => {}
                     _ => unreachable!(),
-                },
-                Opcode::Recur(n) => match self.callstack.last() {
-                    Some((ip, _, sp, _)) => {
-                        for i in 0..*n {
-                            match self.stack.pop() {
-                                Some(v) => {
-                                    self.stack[sp - (*n - i - 1)] = v;
-                                }
-                                _ => unreachable!(),
-                            }
-                        }
-                        self.ip = *ip;
-                    }
-                    None => unreachable!(),
                 },
                 Opcode::Ret(n) => match self.callstack.pop() {
                     Some((_, _, sp, ip)) => {
