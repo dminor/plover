@@ -62,7 +62,7 @@ impl fmt::Display for Opcode {
             Opcode::Div => write!(f, "div"),
             Opcode::Dup => write!(f, "dup"),
             Opcode::Equal => write!(f, "eq"),
-            Opcode::Dconst(typ, ctor) => write!(f, "const {}", ctor),
+            Opcode::Dconst(_, ctor) => write!(f, "const {}", ctor),
             Opcode::Fconst(id, ip, _) => {
                 if let Some(id) = id {
                     write!(f, "{} @{}", id, ip)
