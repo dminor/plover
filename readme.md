@@ -86,9 +86,9 @@ Lexical closures are supported and it is possible for a function to return anoth
 function:
 
 ```
-def adder := fn t -> fn x -> x + t end end;
-def f := adder 1;
-f 2;
+def adder := fn t -> fn x -> x + t end end
+def f := adder 1
+f 2
 ```
 
 Functions can optionally take a name which is defined inside the body to allow
@@ -156,9 +156,9 @@ immutable, but it is possible to shadow a previous define expression. The
 value of a define expression is the value that is assigned to the variable.
 
 ```
-def x := 1;
-def x := false;
-def y := def z := 42;
+def x := 1
+def x := false
+def y := def z := 42
 ```
 
 ### Function Calls
