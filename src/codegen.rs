@@ -161,7 +161,7 @@ fn generate(
         }
         TypedAST::Datatype(typ, variants) => {
             for variant in variants {
-                if let Type::Datatype(name) = &variant.1 {
+                if let Type::Datatype(_) = &variant.1 {
                     instr.push(vm::Opcode::Uconst);
                     instr.push(vm::Opcode::Dconst(typ.to_string(), variant.0.to_string()));
                     instr.push(vm::Opcode::SetEnv(variant.0.to_string()));
@@ -602,64 +602,67 @@ mod tests {
         eval!("def x := 42", Integer, 42);
         eval!("def f := fn x -> x + 1 end 1", Integer, 2);
         eval!(
-            "def t := 1;
-             def f := fn x -> x + t end;
-             def t := 2;
-             f 1;",
+            "def t := 1
+             def f := fn x -> x + t end
+             def t := 2
+             f 1",
             Integer,
             2
         );
         eval!(
-            "def t := 1;
-             def f := fn x -> def t := 2; x + t end;
-             f 1;",
+            "def t := 1
+             (def f := fn x ->
+                 def t := 2
+                 x + t
+             end)
+             f 1",
             Integer,
             3
         );
         eval!(
-            "def f := fn t -> fn x -> x + t end end;
-             (f 2) 1;",
+            "(def f := fn t -> fn x -> x + t end end)
+             (f 2) 1",
             Integer,
             3
         );
         eval!(
-            "def f := fn (x, y) -> x == y end;
+            "(def f := fn (x, y) -> x == y end)
              f (1, 2)",
             Boolean,
             false
         );
         evalfails!(
-            "def f := fn (x, y) -> x == y end;
+            "(def f := fn (x, y) -> x == y end)
              f (1, false)",
             "Type error: expected (t2, t2) but found (integer, boolean)."
         );
         eval!(
-            "def f := fn (x, y) -> x == y end;
+            "(def f := fn (x, y) -> x == y end)
              f (1, 1)",
             Boolean,
             true
         );
         evalfails!(
-            "def f := fn (x, y) -> x == y end;
-             def g := fn (x, y) -> x == y end;
+            "(def f := fn (x, y) -> x == y end)
+             (def g := fn (x, y) -> x == y end)
              f (f, g)",
             "Type error: expected (t2, t2) but found ((t2, t2) -> boolean, (t6, t6) -> boolean)."
         );
         eval!(
-            "type Maybe := Some x | None;
+            "(type Maybe := Some x | None)
              None",
             Datatype,
             Box::new(vm::Value::Unit)
         );
         eval!(
-            "type Maybe := Some x | None;
+            "(type Maybe := Some x | None)
              Some 42",
             Datatype,
             Box::new(vm::Value::Integer(42))
         );
         eval!(
-            "type Maybe := Some x | None;
-             def f := fn x -> Some x end;
+            "type Maybe := Some x | None
+             (def f := fn x -> Some x end)
              f 42",
             Datatype,
             Box::new(vm::Value::Integer(42))
@@ -674,13 +677,11 @@ mod tests {
                  else
                      false
                  end
-             end;
-             f (1, 0)
+             end (1, 0)
         ",
             Boolean,
             true
         );
-        eval!("fn f x -> x + 1 end; f 1", Integer, 2);
         eval!(
             "fn fact (n, acc) ->
                  if n == 0 then
@@ -688,7 +689,7 @@ mod tests {
                  else
                     fact(n - 1, n*acc)
                  end
-             end;
+             end
              fact (5, 1)
         ",
             Integer,
@@ -702,9 +703,9 @@ mod tests {
                      else
                         iter(n - 1, n*acc)
                      end
-                end;
+                end
                 iter (n, 1)
-             end;
+             end
              fact 5
         ",
             Integer,

@@ -84,7 +84,7 @@ fn fact n ->
         else
             iter(n - 1, n*acc)
         end
-    end;
+    end
     iter (n, 1)
 end
 ```

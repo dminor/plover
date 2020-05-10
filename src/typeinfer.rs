@@ -147,7 +147,7 @@ pub fn type_of(ast: &TypedAST) -> Type {
         TypedAST::Function(_, param, body) => {
             Type::Function(Box::new(type_of(param)), Box::new(type_of(body)))
         }
-        TypedAST::If(conds, els) => type_of(&els),
+        TypedAST::If(_, els) => type_of(&els),
         TypedAST::Integer(_) => Type::Integer,
         TypedAST::Unit => Type::Unit,
     }
@@ -271,12 +271,12 @@ fn build_constraints(
             let typed_arg = build_constraints(id, constraints, &mut ids, &arg)?;
 
             match &typed_fun {
-                TypedAST::Call(fun, arg) => {
+                TypedAST::Call(fun, _) => {
                     if let TypedAST::Function(_, _, body) = &**fun {
                         constraints.push((type_of(&body), type_of(&typed_arg), *line, *col));
                     }
                 }
-                TypedAST::Function(_, params, body) => {
+                TypedAST::Function(_, params, _) => {
                     constraints.push((type_of(&params), type_of(&typed_arg), *line, *col));
                 }
                 TypedAST::Identifier(Type::Function(params, _), _) => {
@@ -293,7 +293,7 @@ fn build_constraints(
 
             Ok(TypedAST::Call(Box::new(typed_fun), Box::new(typed_arg)))
         }
-        parser::AST::Datatype(typ, variants, line, col) => {
+        parser::AST::Datatype(typ, variants, _, _) => {
             let mut typed_variants = Vec::new();
             for variant in variants {
                 match &variant.1 {
@@ -321,7 +321,7 @@ fn build_constraints(
             ))
         }
         parser::AST::Define(ident, value, line, col) => {
-            if let parser::AST::Identifier(ident, line, col) = &**ident {
+            if let parser::AST::Identifier(ident, _, _) = &**ident {
                 let typed_value = build_constraints(id, constraints, ids, &value)?;
                 ids.insert(ident.to_string(), type_of(&typed_value));
                 Ok(TypedAST::Define(
@@ -337,7 +337,7 @@ fn build_constraints(
                 })
             }
         }
-        parser::AST::Function(ident, param, body, line, col) => {
+        parser::AST::Function(ident, param, body, _, _) => {
             let mut local_ids = ids.clone();
             let typed_param =
                 build_param_constraints(id, constraints, &mut local_ids, &param, true)?;
@@ -490,7 +490,7 @@ fn substitute<S: ::std::hash::BuildHasher>(
             substitute(bindings, param);
             substitute(bindings, body);
         }
-        TypedAST::Identifier(typ, s) => {
+        TypedAST::Identifier(typ, _) => {
             if let Type::Polymorphic(s) = typ {
                 if let Some(subst) = bindings.get(s) {
                     *typ = subst.clone();
@@ -516,7 +516,7 @@ fn substitute<S: ::std::hash::BuildHasher>(
                 substitute(bindings, element);
             }
         }
-        TypedAST::UnaryOp(typ, op, ast) => {
+        TypedAST::UnaryOp(typ, _, ast) => {
             if let Type::Polymorphic(s) = typ {
                 if let Some(subst) = bindings.get(s) {
                     *typ = subst.clone();
@@ -668,10 +668,11 @@ mod tests {
         infer!("(fn x -> ~x end) true", "boolean");
         infer!("(fn x -> x + 1 end) 1", "integer");
         inferfails!(
-            "(1,1) 1",
+            "def x := (1,1)
+             x 1",
             "Type error: attempt to call non-lambda value.",
-            1,
-            8
+            2,
+            17
         );
         infer!("def x := 1", "integer");
         infer!("def x := false", "boolean");
@@ -688,33 +689,33 @@ mod tests {
         );
         infer!("type Maybe := Some x | None", "Maybe");
         infer!(
-            "type E := A | B;
-             (fn x -> A end)",
+            "type E := A | B
+             fn x -> A end",
             "t1 -> E"
         );
         infer!(
-            "type E := A | B;
-             (fn x -> A end) 10",
+            "type E := A | B
+             fn x -> A end 10",
             "E"
         );
         infer!(
-            "type E := A | B;
-             (fn x -> if x then A else B end end) true",
+            "type E := A | B
+             fn x -> if x then A else B end end true",
             "E"
         );
         infer!(
-            "def f := fn x -> x + 1 end;
-             (fn x -> f x end) 10",
+            "(def f := fn x -> x + 1 end)
+             fn x -> f x end 10",
             "integer"
         );
         infer!(
-            "type E := A x | B;
-             (fn x -> A x end) 10",
+            "type E := A x | B
+             fn x -> A x end 10",
             "E"
         );
         infer!(
-            "type E := A(x,y) | B;
-             (fn x -> A(x,x) end) 10",
+            "type E := A(x,y) | B
+             fn x -> A(x,x) end 10",
             "E"
         );
         infer!(
@@ -725,8 +726,8 @@ mod tests {
                     else
                        iter(n - 1, n*acc)
                     end
-                 end;
-                 iter(5, 1)
+                 end
+                 iter (n, 1)
              end",
             "integer -> integer"
         );

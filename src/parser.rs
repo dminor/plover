@@ -1,11 +1,11 @@
 use std::fmt;
 
 /*
-program        -> datatype ( ";" )? ( ";" datatype )*
-datatype       -> "type" IDENTIFIER ":=" IDENTIFIER ( value )? ( "|" datatype)*
-                  | expression
+program        -> expression*
 expression     -> "let" IDENTIFIER ":=" expression
+                  | datatype
                   | conditional
+datatype       -> "type" IDENTIFIER ":=" IDENTIFIER ( value )? ( "|" datatype)*
 conditional    -> "if" equality "then" expression
                   ("elsif" equality "then" expression)*
                   "else" expression "end"
@@ -485,15 +485,6 @@ fn program(ps: ParseState) -> ParseResult {
                 return ParseResult::Error(err, line, col);
             }
         }
-        lps = skip!(lps, whitespace);
-        if let Some(';') = lps.chars.peek() {
-            lps.next();
-            if let None = lps.next() {
-                break;
-            }
-        } else {
-            break;
-        }
     }
     if expressions.len() > 0 {
         ParseResult::Matched(AST::Program(expressions, ps.line, ps.col), lps)
@@ -655,11 +646,18 @@ fn datatype(ps: ParseState) -> ParseResult {
                             ParseResult::Matched(variant, ps) => {
                                 lps = skip!(ps, whitespace);
                                 // Check for optional param
+                                let ps_before_param = lps.clone();
                                 let param = match value(lps) {
-                                    ParseResult::Matched(param, ps) => {
-                                        lps = skip!(ps, whitespace);
-                                        Some(param)
-                                    }
+                                    ParseResult::Matched(param, ps) => match &param {
+                                        AST::Identifier(_, _, _) | AST::Tuple(_, _, _) => {
+                                            lps = skip!(ps, whitespace);
+                                            Some(param)
+                                        }
+                                        _ => {
+                                            lps = ps_before_param;
+                                            None
+                                        }
+                                    },
                                     ParseResult::NotMatched(ps) => {
                                         lps = ps;
                                         None
@@ -757,7 +755,7 @@ fn unary(ps: ParseState) -> ParseResult {
             }
             _ => call(lps),
         },
-        None => ParseResult::Error("Unexpected end of input.".to_string(), ps.line, ps.col),
+        None => ParseResult::NotMatched(ps),
     }
 }
 
@@ -766,20 +764,21 @@ fn call(ps: ParseState) -> ParseResult {
     lps = skip!(lps, whitespace);
 
     match value(lps) {
-        ParseResult::Matched(fun, ps) => {
-            lps = skip!(ps, whitespace);
-            match value(lps) {
-                ParseResult::Matched(args, ps) => ParseResult::Matched(
-                    AST::Call(Box::new(fun), Box::new(args), ps.line, ps.col),
-                    ps,
-                ),
-                ParseResult::NotMatched(ps) => ParseResult::Matched(fun, ps),
-                ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
+        ParseResult::Matched(fun, ps) => match fun {
+            AST::Call(_, _, _, _) | AST::Function(None, _, _, _, _) | AST::Identifier(_, _, _) => {
+                lps = skip!(ps, whitespace);
+                match value(lps) {
+                    ParseResult::Matched(args, ps) => ParseResult::Matched(
+                        AST::Call(Box::new(fun), Box::new(args), ps.line, ps.col),
+                        ps,
+                    ),
+                    ParseResult::NotMatched(ps) => ParseResult::Matched(fun, ps),
+                    ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
+                }
             }
-        }
-        ParseResult::NotMatched(ps) => {
-            ParseResult::Error("Expected value.".to_string(), ps.line, ps.col)
-        }
+            _ => ParseResult::Matched(fun, ps),
+        },
+        ParseResult::NotMatched(ps) => ParseResult::NotMatched(ps),
         ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
     }
 }
@@ -1214,17 +1213,12 @@ mod tests {
             "(define t:Identifier (1:Integer, 2:Integer, 3:Integer):Tuple)"
         );
         parse!(
-            "def x := 1;
+            "def x := 1
              def y := 2",
             "((define x:Identifier 1:Integer) (define y:Identifier 2:Integer))"
         );
         parse!(
-            "def x := 1;
-             def y := 2;",
-            "((define x:Identifier 1:Integer) (define y:Identifier 2:Integer))"
-        );
-        parse!(
-            "def f := fn x -> def t := 2; x + t end",
+            "def f := fn x -> def t := 2 x + t end",
             "(define f:Identifier (fn x:Identifier ((define t:Identifier 2:Integer) (+ x:Identifier t:Identifier))))"
         );
 
@@ -1238,7 +1232,7 @@ mod tests {
             "(Cons: (a:Identifier, b:Identifier):Tuple, Null) Pair:Type"
         );
         parse!(
-            "type Option := Some x | None; def a := Some 42",
+            "type Option := Some x | None def a := Some 42",
             "((Some: x:Identifier, None) Option:Type (define a:Identifier (apply Some:Identifier 42:Integer)))"
         );
         parse!("()", "():Unit");
