@@ -11,39 +11,40 @@ It worked by evaluating the abstract syntax tree. The second,
 added a virtual machine and mutable state.
 
 To keep things interesting Schönfinkel uses parser combinators rather than a
-separate lexer and recursive descent parser like in Scoundrel and Walden. The
-language is purely functional. Schönfinkel supports static type checking
-without having to use any type annotations, largely because the language is so
-simple. The type inference is done from scratch rather than using an existing
-algorithm like Hindley-Milner.
+separate lexer and recursive descent parser like in Scoundrel and Walden. I
+probably should have learned to use an existing parser combinator library
+before trying to roll my own, the implementation ended up a bit messy.
 
-The type inference is bottom up, with the type being inferred from constants
-if present, and operators if they are not present. The only polymorphism is
-in the == and ~= operators which may be applied to any type, which can result
-in polymorphic functions:
+The language is purely functional. Schönfinkel uses Hindley-Milner style type
+inference. This was an evolution. The first implementation did limited, hard
+coded type inference based upon operator types, which worked while the
+language remained simple. I then took a break, learned about
+[unification](https://en.wikipedia.org/wiki/Unification_(computer_science)) by
+writing [Tern](https://github.com/dminor/tern) and came back. Essentially,
+the type inference works by assigning types to every node in the abstract
+syntax tree, generating constraints based upon how the nodes are used, and then
+uses unification solve these constraints to determine types. For example, in
+an if/then/else statement, the value in the *if* test must be a boolean, and
+the types in the *then* and *else* branches must match.
 
-```
-fn (a, b) ->
-    a == b
-end
-```
-
-Schönfinkel was much more time consuming to write than Scoundrel or Walden.
-Part of this was getting the type system to work. It made the development cycle
-for adding a new language feature that much longer, which made it difficult to
-keep momentum when developing the language. It's a lot of fun to see a new
-part of a language come alive in an interpreter, and that was a lot slower
-in Schönfinkel. I plan to learn a lot more about logic programming and unification
-before tackling another type system.
+Schönfinkel was much more time consuming to write than Scoundrel or Walden,
+and I ended up taking a eight month break in between getting the initial
+interpreter working, and coming back to redo type inference with unification
+and add user data types. With type inference and a virtual machine, adding a
+new language feature requires parser work, type inference work, and code
+generation, which slowed down the development cycle and made it hard to keep
+momentum on the project. It's a lot of fun to see a new part of a language come
+alive in an interpreter, and that was a lot slower in Schönfinkel.
 
 The language is named after
-[Moses Schönfinkel](https://en.wikipedia.org/wiki/Moses_Sch%C3%B6nfinkel), a logician.
+[Moses Schönfinkel](https://en.wikipedia.org/wiki/Moses_Sch%C3%B6nfinkel), a
+logician.
 
 Keywords
 --------
 
-The following are reserved keywords: *else*, *elsif*, *end*, *false*,
-*fn*, *if*, *def*, *then* and *true*.
+The following are reserved keywords: *def*, *else*, *elsif*, *end*, *false*,
+*fn*, *if*, *then*, *true* and *type*.
 
 Values
 ------
@@ -52,6 +53,23 @@ Values
 
 Booleans take the values `true` and `false`. The usual boolean operators are
 supported: `&&`, `||`, and `~` (for not).
+
+### Datatypes
+
+New types can be introduced by using the type statement:
+
+```
+type AorB := A | B end
+```
+
+Type variants can optionally take arguments:
+
+```
+type Option := Some x | None end
+```
+
+In this case, a constructor function is generated that takes an argument and
+returns an instance of the type.
 
 ### Function
 
@@ -88,6 +106,10 @@ fn fact n ->
     iter (n, 1)
 end
 ```
+
+Closures are implemented by finding *upvalues* by searching for variables that
+live on the stack when the function is defined and copying them into an
+environment for later use. The implementation was inspired by Lua.
 
 ### Number
 
@@ -141,10 +163,33 @@ def y := def z := 42;
 
 ### Function Calls
 
-A function call consists of a function value followed by the valueto which the
+A function call consists of a function value followed by the value to which the
 function is applied.
 
 ```
-def f := fn x -> x + 1 end;
+fn f x -> x + 1 end
 f 1
 ```
+
+Anonymous functions can be called by placing a value next to the function
+definition.
+
+```
+fn x -> x + 1 end 1
+```
+
+This is not allowed for named functions, as it leads to syntactical oddities, for
+instance:
+
+```
+fn f x -> x + 1 end
+f 1
+```
+
+would be interpreted as trying to call f with itself as an argument, rather than a
+separate definition and function call.
+
+Todo
+----
+* Tail call elimination
+* Match expressions
