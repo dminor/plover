@@ -687,19 +687,19 @@ mod tests {
              end",
             "(integer, integer) -> integer"
         );
-        infer!("type Maybe := Some x | None", "Maybe");
+        infer!("type Maybe := Some x | None end", "Maybe");
         infer!(
-            "type E := A | B
+            "type E := A | B end
              fn x -> A end",
             "t1 -> E"
         );
         infer!(
-            "type E := A | B
+            "type E := A | B end
              fn x -> A end 10",
             "E"
         );
         infer!(
-            "type E := A | B
+            "type E := A | B end
              fn x -> if x then A else B end end true",
             "E"
         );
@@ -709,12 +709,12 @@ mod tests {
             "integer"
         );
         infer!(
-            "type E := A x | B
+            "type E := A x | B end
              fn x -> A x end 10",
             "E"
         );
         infer!(
-            "type E := A(x,y) | B
+            "type E := A(x,y) | B end
              fn x -> A(x,x) end 10",
             "E"
         );

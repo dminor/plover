@@ -649,20 +649,20 @@ mod tests {
             "Type error: expected (t2, t2) but found ((t2, t2) -> boolean, (t6, t6) -> boolean)."
         );
         eval!(
-            "(type Maybe := Some x | None)
+            "type Maybe := Some x | None end
              None",
             Datatype,
             Box::new(vm::Value::Unit)
         );
         eval!(
-            "(type Maybe := Some x | None)
+            "type Maybe := Some x | None end
              Some 42",
             Datatype,
             Box::new(vm::Value::Integer(42))
         );
         eval!(
-            "type Maybe := Some x | None
-             (def f := fn x -> Some x end)
+            "type Maybe := Some x | None end
+             fn f x -> Some x end
              f 42",
             Datatype,
             Box::new(vm::Value::Integer(42))

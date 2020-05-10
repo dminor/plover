@@ -2,10 +2,10 @@ use std::fmt;
 
 /*
 program        -> expression*
-expression     -> "let" IDENTIFIER ":=" expression
+expression     -> "def" IDENTIFIER ":=" expression
                   | datatype
                   | conditional
-datatype       -> "type" IDENTIFIER ":=" IDENTIFIER ( value )? ( "|" datatype)*
+datatype       -> "type" IDENTIFIER ":=" IDENTIFIER ( value )? ( "|" datatype)* "end"
 conditional    -> "if" equality "then" expression
                   ("elsif" equality "then" expression)*
                   "else" expression "end"
@@ -682,7 +682,15 @@ fn datatype(ps: ParseState) -> ParseResult {
                         }
                         lps = skip!(lps, whitespace);
                         if Some(&'|') != lps.chars.peek() {
-                            break;
+                            if let Some(_) = expect!(lps, "end") {
+                                break;
+                            } else {
+                                return ParseResult::Error(
+                                    "Expected end.".to_string(),
+                                    lps.line,
+                                    lps.col,
+                                );
+                            }
                         }
                         lps.chars.next();
                         lps = skip!(lps, whitespace);
@@ -1222,17 +1230,17 @@ mod tests {
             "(define f:Identifier (fn x:Identifier ((define t:Identifier 2:Integer) (+ x:Identifier t:Identifier))))"
         );
 
-        parse!("type Option := Some | None", "(Some, None) Option:Type");
+        parse!("type Option := Some | None end", "(Some, None) Option:Type");
         parse!(
-            "type Option := Some x | None",
+            "type Option := Some x | None end",
             "(Some: x:Identifier, None) Option:Type"
         );
         parse!(
-            "type Pair := Cons (a, b) | Null",
+            "type Pair := Cons (a, b) | Null end",
             "(Cons: (a:Identifier, b:Identifier):Tuple, Null) Pair:Type"
         );
         parse!(
-            "type Option := Some x | None def a := Some 42",
+            "type Option := Some x | None end def a := Some 42",
             "((Some: x:Identifier, None) Option:Type (define a:Identifier (apply Some:Identifier 42:Integer)))"
         );
         parse!("()", "():Unit");
