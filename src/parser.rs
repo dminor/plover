@@ -15,7 +15,6 @@ comparison     -> addition ( ( ">" | ">=" | "<" | "<=" ) addition )*
 addition       -> multiplication ( ( "+" | "-" | "||" ) multiplication )*
 multiplication -> unary ( ( "/" | "*" | "|" | "%" | "&&" ) unary )*
 unary          -> ( "~" | "-" ) unary | call
-recur          -> recur value | call
 call           -> value value | value
 value          -> IDENTIFIER | INTEGER | STRING | "false" | "true" | "()"
                   | "(" expression "," ( expression )* ")"
@@ -363,7 +362,6 @@ pub enum AST {
     If(Vec<(AST, AST)>, Box<AST>, usize, usize),
     Integer(i64, usize, usize),
     Program(Vec<AST>, usize, usize),
-    Recur(Box<AST>, usize, usize),
     Tuple(Vec<AST>, usize, usize),
     UnaryOp(Operator, Box<AST>, usize, usize),
     Unit(usize, usize),
@@ -421,7 +419,6 @@ impl fmt::Display for AST {
                 }
                 Ok(())
             }
-            AST::Recur(args, _, _) => write!(f, "(recur {})", args),
             AST::Tuple(elements, _, _) => {
                 write!(f, "(")?;
                 for i in 0..elements.len() {
@@ -758,30 +755,9 @@ fn unary(ps: ParseState) -> ParseResult {
                     ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
                 }
             }
-            _ => recur(lps),
+            _ => call(lps),
         },
         None => ParseResult::Error("Unexpected end of input.".to_string(), ps.line, ps.col),
-    }
-}
-
-fn recur(ps: ParseState) -> ParseResult {
-    let mut lps = ps.clone();
-    lps = skip!(lps, whitespace);
-
-    match expect!(lps, "recur") {
-        Some(_) => {
-            lps = skip!(lps, whitespace);
-            match value(lps) {
-                ParseResult::Matched(args, ps) => {
-                    ParseResult::Matched(AST::Recur(Box::new(args), ps.line, ps.col), ps)
-                }
-                ParseResult::NotMatched(ps) => {
-                    ParseResult::Error("Expected value.".to_string(), ps.line, ps.col)
-                }
-                ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
-            }
-        }
-        None => call(ps),
     }
 }
 

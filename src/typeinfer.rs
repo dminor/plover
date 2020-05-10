@@ -204,7 +204,6 @@ fn build_param_constraints(
         | parser::AST::If(_, _, line, col)
         | parser::AST::Integer(_, line, col)
         | parser::AST::Program(_, line, col)
-        | parser::AST::Recur(_, line, col)
         | parser::AST::UnaryOp(_, _, line, col) => Err(InterpreterError {
             err: "Type error: lambda parameter must be identifier or tuple of identifiers."
                 .to_string(),
