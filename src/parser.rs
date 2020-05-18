@@ -4,8 +4,11 @@ use std::fmt;
 program        -> expression*
 expression     -> "def" IDENTIFIER ":=" expression
                   | datatype
+                  | match
                   | conditional
 datatype       -> "type" IDENTIFIER ":=" IDENTIFIER ( value )? ( "|" datatype)* "end"
+match          -> "match" expression "==" IDENTIFIER ( value )? "->" conditional
+                  ( "|" IDENTIFIER ( value )? "->" conditional)* "end"
 conditional    -> "if" equality "then" expression
                   ("elsif" equality "then" expression)*
                   "else" expression "end"
@@ -69,15 +72,15 @@ macro_rules! addition_operator {
                     Operator::Minus
                 }
                 '|' => {
-                    $ps.next();
-                    match $ps.next() {
-                        Some('|') => Operator::Or,
+                    let mut lps = $ps.clone();
+                    lps.next();
+                    match lps.next() {
+                        Some('|') => {
+                            $ps = lps;
+                            Operator::Or
+                        }
                         _ => {
-                            return ParseResult::Error(
-                                "Expected |.".to_string(),
-                                $ps.line,
-                                $ps.col,
-                            );
+                            break;
                         }
                     }
                 }
@@ -361,6 +364,7 @@ pub enum AST {
     Identifier(String, usize, usize),
     If(Vec<(AST, AST)>, Box<AST>, usize, usize),
     Integer(i64, usize, usize),
+    Match(Box<AST>, Vec<(String, Option<AST>, AST)>, usize, usize),
     Program(Vec<AST>, usize, usize),
     Tuple(Vec<AST>, usize, usize),
     UnaryOp(Operator, Box<AST>, usize, usize),
@@ -404,6 +408,20 @@ impl fmt::Display for AST {
                 write!(f, "(else {}))", els)
             }
             AST::Integer(n, _, _) => write!(f, "{}:Integer", n),
+            AST::Match(id, cases, _, _) => {
+                write!(f, "(match {} ", id)?;
+                for i in 0..cases.len() {
+                    if let Some(param) = &cases[i].1 {
+                        write!(f, "(case {}: {} {})", cases[i].0, param, cases[i].2)?;
+                    } else {
+                        write!(f, "(case {} {})", cases[i].0, cases[i].2)?;
+                    }
+                    if i + 1 != cases.len() {
+                        write!(f, " ")?;
+                    }
+                }
+                write!(f, ")")
+            }
             AST::Program(expressions, _, _) => {
                 if expressions.len() > 1 {
                     write!(f, "(")?;
@@ -494,7 +512,7 @@ fn program(ps: ParseState) -> ParseResult {
 }
 
 fn expression(ps: ParseState) -> ParseResult {
-    or!(ps, datatype, conditional, define, equality)
+    or!(ps, datatype, match_expr, conditional, define, equality)
 }
 
 fn conditional(ps: ParseState) -> ParseResult {
@@ -710,6 +728,119 @@ fn datatype(ps: ParseState) -> ParseResult {
             }
             ParseResult::NotMatched(ps) => {
                 ParseResult::Error("Expected identifier.".to_string(), ps.line, ps.col)
+            }
+            ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
+        }
+    } else {
+        ParseResult::NotMatched(ps)
+    }
+}
+
+fn match_expr(ps: ParseState) -> ParseResult {
+    let mut lps = ps.clone();
+    if let Some(_) = expect!(lps, "match") {
+        lps = skip!(lps, whitespace);
+        println!("found match");
+        match identifier(lps) {
+            ParseResult::Matched(expr, ps) => {
+                lps = skip!(ps, whitespace);
+                if let Some(_) = expect!(lps, "with") {
+                    lps = skip!(lps, whitespace);
+                    let mut cases = Vec::new();
+                    loop {
+                        match identifier(lps) {
+                            ParseResult::Matched(variant, ps) => {
+                                lps = skip!(ps, whitespace);
+                                // Check for optional param
+                                let ps_before_param = lps.clone();
+                                let param = match value(lps) {
+                                    ParseResult::Matched(param, ps) => match &param {
+                                        AST::Identifier(_, _, _) | AST::Tuple(_, _, _) => {
+                                            lps = skip!(ps, whitespace);
+                                            Some(param)
+                                        }
+                                        _ => {
+                                            lps = ps_before_param;
+                                            None
+                                        }
+                                    },
+                                    ParseResult::NotMatched(ps) => {
+                                        lps = ps;
+                                        None
+                                    }
+                                    ParseResult::Error(err, line, col) => {
+                                        return ParseResult::Error(err, line, col);
+                                    }
+                                };
+
+                                if arrow!(lps) {
+                                    match expression(lps) {
+                                        ParseResult::Matched(then, ps) => {
+                                            println!("ARROW then {}", then);
+                                            lps = skip!(ps, whitespace);
+                                            if let AST::Identifier(variant, _, _) = variant {
+                                                cases.push((variant, param, then));
+                                            } else {
+                                                unreachable!()
+                                            }
+                                        }
+                                        ParseResult::NotMatched(ps) => {
+                                            return ParseResult::Error(
+                                                "Expected expression.".to_string(),
+                                                ps.line,
+                                                ps.col,
+                                            );
+                                        }
+                                        ParseResult::Error(err, line, col) => {
+                                            return ParseResult::Error(err, line, col);
+                                        }
+                                    }
+                                } else {
+                                    return ParseResult::Error(
+                                        "Expected ->.".to_string(),
+                                        lps.line,
+                                        lps.col,
+                                    );
+                                }
+                            }
+                            ParseResult::NotMatched(ps) => {
+                                lps = ps;
+                                break;
+                            }
+                            ParseResult::Error(err, line, col) => {
+                                return ParseResult::Error(err, line, col);
+                            }
+                        }
+                        lps = skip!(lps, whitespace);
+
+                        if Some(&'|') != lps.chars.peek() {
+                            if let Some(_) = expect!(lps, "end") {
+                                break;
+                            } else {
+                                return ParseResult::Error(
+                                    "Expected end.".to_string(),
+                                    lps.line,
+                                    lps.col,
+                                );
+                            }
+                        }
+                        lps.chars.next();
+                        lps = skip!(lps, whitespace);
+                    }
+                    if cases.is_empty() {
+                        ParseResult::Error("Expected identifier.".to_string(), lps.line, lps.col)
+                    } else {
+                        ParseResult::Matched(
+                            AST::Match(Box::new(expr), cases, lps.line, lps.col),
+                            lps,
+                        )
+                    }
+                } else {
+                    ParseResult::Error("Expected with.".to_string(), lps.line, lps.col)
+                }
+            }
+            ParseResult::NotMatched(ps) => {
+                ParseResult::Error("Expected expression.".to_string(), ps.line, ps.col)
             }
             ParseResult::Error(err, line, col) => ParseResult::Error(err, line, col),
         }
@@ -963,7 +1094,9 @@ fn identifier(ps: ParseState) -> ParseResult {
     }
     if !s.is_empty() {
         match &s[..] {
-            "if" | "def" | "else" | "elsif" | "end" | "fn" | "then" => ParseResult::NotMatched(lps),
+            "if" | "def" | "else" | "elsif" | "end" | "fn" | "match" | "then" => {
+                ParseResult::NotMatched(lps)
+            }
             _ => ParseResult::Matched(AST::Identifier(s, ps.line, ps.col), lps),
         }
     } else {
@@ -1119,7 +1252,8 @@ mod tests {
                 parser::ParseResult::NotMatched(_) => {
                     assert!(false);
                 }
-                parser::ParseResult::Error(_, _, _) => {
+                parser::ParseResult::Error(err, _, _) => {
+                    println!("error: {}", err);
                     assert!(false);
                 }
             }
@@ -1249,6 +1383,18 @@ mod tests {
         parse!(
             "fn f x -> x + 1 end",
             "(f x:Identifier (+ x:Identifier 1:Integer))"
+        );
+        parse!(
+            "match p with A -> 0 end",
+            "(match p:Identifier (case A 0:Integer))"
+        );
+        parse!(
+            "match p with A -> 0 | B -> 1 end",
+            "(match p:Identifier (case A 0:Integer) (case B 1:Integer))"
+        );
+        parse!(
+            "match p with Cons (a, b) -> (1 + len(b)) | Null -> 0 end",
+            "(match p:Identifier (case Cons: (a:Identifier, b:Identifier):Tuple (+ 1:Integer (apply len:Identifier b:Identifier))) (case Null 0:Integer))"
         );
     }
 }
