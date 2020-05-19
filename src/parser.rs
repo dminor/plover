@@ -740,7 +740,6 @@ fn match_expr(ps: ParseState) -> ParseResult {
     let mut lps = ps.clone();
     if let Some(_) = expect!(lps, "match") {
         lps = skip!(lps, whitespace);
-        println!("found match");
         match identifier(lps) {
             ParseResult::Matched(expr, ps) => {
                 lps = skip!(ps, whitespace);
@@ -776,7 +775,6 @@ fn match_expr(ps: ParseState) -> ParseResult {
                                 if arrow!(lps) {
                                     match expression(lps) {
                                         ParseResult::Matched(then, ps) => {
-                                            println!("ARROW then {}", then);
                                             lps = skip!(ps, whitespace);
                                             if let AST::Identifier(variant, _, _) = variant {
                                                 cases.push((variant, param, then));
@@ -1252,8 +1250,7 @@ mod tests {
                 parser::ParseResult::NotMatched(_) => {
                     assert!(false);
                 }
-                parser::ParseResult::Error(err, _, _) => {
-                    println!("error: {}", err);
+                parser::ParseResult::Error(_, _, _) => {
                     assert!(false);
                 }
             }
