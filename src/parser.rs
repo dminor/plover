@@ -740,8 +740,8 @@ fn match_expr(ps: ParseState) -> ParseResult {
     let mut lps = ps.clone();
     if let Some(_) = expect!(lps, "match") {
         lps = skip!(lps, whitespace);
-        match identifier(lps) {
-            ParseResult::Matched(expr, ps) => {
+        match call(lps) {
+            ParseResult::Matched(cond, ps) => {
                 lps = skip!(ps, whitespace);
                 if let Some(_) = expect!(lps, "with") {
                     lps = skip!(lps, whitespace);
@@ -829,7 +829,7 @@ fn match_expr(ps: ParseState) -> ParseResult {
                         ParseResult::Error("Expected identifier.".to_string(), lps.line, lps.col)
                     } else {
                         ParseResult::Matched(
-                            AST::Match(Box::new(expr), cases, lps.line, lps.col),
+                            AST::Match(Box::new(cond), cases, lps.line, lps.col),
                             lps,
                         )
                     }
@@ -1092,7 +1092,7 @@ fn identifier(ps: ParseState) -> ParseResult {
     }
     if !s.is_empty() {
         match &s[..] {
-            "if" | "def" | "else" | "elsif" | "end" | "fn" | "match" | "then" => {
+            "if" | "def" | "else" | "elsif" | "end" | "fn" | "match" | "then" | "with" => {
                 ParseResult::NotMatched(lps)
             }
             _ => ParseResult::Matched(AST::Identifier(s, ps.line, ps.col), lps),
@@ -1392,6 +1392,14 @@ mod tests {
         parse!(
             "match p with Cons (a, b) -> (1 + len(b)) | Null -> 0 end",
             "(match p:Identifier (case Cons: (a:Identifier, b:Identifier):Tuple (+ 1:Integer (apply len:Identifier b:Identifier))) (case Null 0:Integer))"
+        );
+        parse!(
+            "match f () with
+                A -> 0
+                | B -> 1
+             end
+            ",
+            "(match (apply f:Identifier ():Unit) (case A 0:Integer) (case B 1:Integer))"
         );
     }
 }
