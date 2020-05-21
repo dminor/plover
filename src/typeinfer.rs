@@ -289,9 +289,7 @@ fn build_constraints(
                 TypedAST::Function(_, params, _) => {
                     constraints.push((type_of(&params), type_of(&typed_arg), *line, *col));
                 }
-                TypedAST::Identifier(Type::Function(params, _), _) => {
-                    constraints.push((*params.clone(), type_of(&typed_arg), *line, *col));
-                }
+                TypedAST::Identifier(Type::Function(_, _), _) => {}
                 _ => {
                     return Err(InterpreterError {
                         err: "Type error: attempt to call non-lambda value.".to_string(),

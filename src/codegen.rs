@@ -632,10 +632,11 @@ mod tests {
             Boolean,
             false
         );
-        evalfails!(
+        eval!(
             "(def f := fn (x, y) -> x == y end)
              f (1, false)",
-            "Type error: expected (t2, t2) but found (integer, boolean)."
+            Boolean,
+            false
         );
         eval!(
             "(def f := fn (x, y) -> x == y end)
@@ -643,11 +644,12 @@ mod tests {
             Boolean,
             true
         );
-        evalfails!(
+        eval!(
             "(def f := fn (x, y) -> x == y end)
              (def g := fn (x, y) -> x == y end)
              f (f, g)",
-            "Type error: expected (t2, t2) but found ((t2, t2) -> boolean, (t6, t6) -> boolean)."
+            Boolean,
+            false
         );
         eval!(
             "type Maybe := Some x | None end
