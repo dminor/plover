@@ -270,6 +270,7 @@ fn generate(
         TypedAST::Integer(i) => {
             instr.push(vm::Opcode::Iconst(*i));
         }
+        TypedAST::Match(_, _, _) => {}
         TypedAST::Program(_, expressions) => {
             for i in 0..expressions.len() {
                 generate(&expressions[i], vm, instr, ids);

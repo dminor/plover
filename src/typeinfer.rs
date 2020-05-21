@@ -8,12 +8,12 @@ use crate::unification::unify;
 #[derive(Clone, Debug)]
 pub enum Type {
     Boolean,
+    Datatype(String),
     Function(Box<Type>, Box<Type>),
     Integer,
     Polymorphic(String),
     Tuple(Vec<Type>),
     Unit,
-    Datatype(String),
 }
 
 impl PartialEq for Type {
@@ -107,6 +107,7 @@ impl fmt::Display for Type {
     }
 }
 
+#[derive(Debug)]
 pub enum TypedAST {
     BinaryOp(
         Type,
@@ -124,6 +125,7 @@ pub enum TypedAST {
     Identifier(Type, String),
     If(Vec<(TypedAST, TypedAST)>, Box<TypedAST>),
     Integer(i64),
+    Match(Box<TypedAST>, Type, Vec<(String, Option<TypedAST>, TypedAST)>),
     Program(Type, Vec<TypedAST>),
     Tuple(Type, Vec<TypedAST>),
     UnaryOp(Type, parser::Operator, Box<TypedAST>),
@@ -149,6 +151,13 @@ pub fn type_of(ast: &TypedAST) -> Type {
         }
         TypedAST::If(_, els) => type_of(&els),
         TypedAST::Integer(_) => Type::Integer,
+        TypedAST::Match(_, _, cases) => {
+            if cases.len() > 0 {
+                type_of(&cases[0].2)
+            } else {
+                unreachable!()
+            }
+        }
         TypedAST::Unit => Type::Unit,
     }
 }
@@ -338,10 +347,11 @@ fn build_constraints(
                 })
             }
         }
-        parser::AST::Function(ident, param, body, _, _) => {
+        parser::AST::Function(ident, param, body, line, col) => {
             let mut local_ids = ids.clone();
             let typed_param =
                 build_param_constraints(id, constraints, &mut local_ids, &param, true)?;
+            let typed_body;
             if let Some(ident) = ident {
                 let typ = fresh_type(id);
                 ids.insert(
@@ -350,10 +360,13 @@ fn build_constraints(
                 );
                 local_ids.insert(
                     ident.to_string(),
-                    Type::Function(Box::new(type_of(&typed_param)), Box::new(typ)),
+                    Type::Function(Box::new(type_of(&typed_param)), Box::new(typ.clone())),
                 );
+                typed_body = build_constraints(id, constraints, &mut local_ids, &body)?;
+                constraints.push((typ, type_of(&typed_body), *line, *col));
+            } else {
+                typed_body = build_constraints(id, constraints, &mut local_ids, &body)?;
             }
-            let typed_body = build_constraints(id, constraints, &mut local_ids, &body)?;
 
             Ok(TypedAST::Function(
                 ident.clone(),
@@ -398,6 +411,88 @@ fn build_constraints(
             Ok(TypedAST::If(typed_conds, Box::new(elsepart)))
         }
         parser::AST::Integer(i, _, _) => Ok(TypedAST::Integer(*i)),
+        parser::AST::Match(cond, cases, line, col) => {
+            let typed_cond = build_constraints(id, constraints, ids, &cond)?;
+            match type_of(&typed_cond) {
+                Type::Datatype(_) | Type::Polymorphic(_) => {}
+                _ => {
+                    return Err(InterpreterError {
+                        err: "Match statement: expected datatype.".to_string(),
+                        line: *line,
+                        col: *col,
+                    });
+                }
+            }
+
+            let mut first = true;
+            let mut inferred_type = Type::Unit;
+            let mut typed_cases = Vec::new();
+            let mut datatype = Type::Unit;
+            for case in cases {
+                let mut local_ids = ids.clone();
+                let typed_param = match &case.1 {
+                    Some(param) => {
+                        Some(build_param_constraints(id, constraints, &mut local_ids, &param, true)?)
+                    }
+                    None => None
+                };
+
+                let typed_case = build_constraints(id, constraints, &mut local_ids, &case.2)?;
+                if first {
+                    inferred_type = type_of(&typed_case);
+                } else {
+                    constraints.push((inferred_type.clone(), type_of(&typed_case), *line, *col));
+                }
+
+                let variant_type;
+                match ids.get(&case.0) {
+                    Some(typ) => {
+                        let typ = match typ {
+                            Type::Function(_, body) => body,
+                            _ => typ,
+                        };
+                        variant_type = typ.clone();
+                        if first {
+                            datatype = variant_type;
+                            if let Type::Polymorphic(_) = type_of(&typed_cond) {
+                                constraints.push((
+                                    type_of(&typed_cond),
+                                    datatype.clone(),
+                                    *line,
+                                    *col,
+                                ));
+                            }
+                        } else if variant_type != datatype {
+                            let mut err = "Type error: expected ".to_string();
+                            err.push_str(&datatype.to_string());
+                            err.push_str(" but found ");
+                            err.push_str(&variant_type.to_string());
+                            err.push('.');
+                            return Err(InterpreterError {
+                                err: err.to_string(),
+                                line: *line,
+                                col: *col,
+                            });
+                        }
+                    }
+                    None => {
+                        let mut err = "Unknown variant in match: ".to_string();
+                        err.push_str(&case.0);
+                        err.push('.');
+
+                        return Err(InterpreterError {
+                            err: err.to_string(),
+                            line: *line,
+                            col: *col,
+                        });
+                    }
+                }
+
+                typed_cases.push((case.0.to_string(), typed_param, typed_case));
+                first = false;
+            }
+            Ok(TypedAST::Match(Box::new(typed_cond), datatype, typed_cases))
+        }
         parser::AST::Program(expressions, line, col) => {
             let mut typed_expressions = Vec::new();
             for expr in expressions {
@@ -492,11 +587,7 @@ fn substitute<S: ::std::hash::BuildHasher>(
             substitute(bindings, body);
         }
         TypedAST::Identifier(typ, _) => {
-            if let Type::Polymorphic(s) = typ {
-                if let Some(subst) = bindings.get(s) {
-                    *typ = subst.clone();
-                }
-            }
+            substitute_in_type(bindings, typ);
         }
         TypedAST::If(conds, els) => {
             for cond in conds {
@@ -504,6 +595,13 @@ fn substitute<S: ::std::hash::BuildHasher>(
                 substitute(bindings, &mut cond.1);
             }
             substitute(bindings, els);
+        }
+        TypedAST::Match(cond, datatype, cases) => {
+            substitute(bindings, cond);
+            substitute_in_type(bindings, datatype);
+            for case in cases {
+                substitute(bindings, &mut case.2);
+            }
         }
         TypedAST::Program(typ, expressions) => {
             substitute_in_type(bindings, typ);
@@ -731,6 +829,116 @@ mod tests {
                  iter (n, 1)
              end",
             "integer -> integer"
+        );
+        infer!(
+            "type E := A | B end
+             match A with
+                A -> 0
+                | B -> 1
+             end
+            ",
+            "integer"
+        );
+        infer!(
+            "type E := A | B end
+             def p := A
+             match p with
+                A -> 0
+                | B -> 1
+             end
+            ",
+            "integer"
+        );
+        infer!(
+            "type E := A | B end
+             fn f () -> A end
+            ",
+            "unit -> E"
+        );
+        infer!(
+            "type E := A | B end
+             fn f () -> A end
+             f
+            ",
+            "unit -> E"
+        );
+        infer!(
+            "type E := A | B end
+             fn f () -> A end
+             match f () with
+                A -> 0
+                | B -> 1
+             end
+            ",
+            "integer"
+        );
+        inferfails!(
+            "type E := A | B end
+             match A with
+                A -> true
+                | B -> 1
+             end
+            ",
+            "Type error: expected boolean but found integer.",
+            5,
+            17
+        );
+        inferfails!(
+            "type E := A | B end
+             type F := C | D end
+             match A with
+                 A -> 0
+                | D -> 1
+             end
+            ",
+            "Type error: expected E but found F.",
+            6,
+            17
+        );
+        inferfails!(
+            "type E := A | B end
+             fn f () -> A end
+             match false with
+                A -> 0
+                | B -> 1
+             end
+            ",
+            "Match statement: expected datatype.",
+            6,
+            17
+        );
+        inferfails!(
+            "type E := A | B end
+             type F := C | D end
+             fn f () -> A end
+             match f () with
+                 C -> 0
+                | D -> 1
+             end
+            ",
+            "Type error: expected E but found F.",
+            7,
+            17
+        );
+        infer!(
+            "type Maybe := Some x | None end
+             match Some 1 with
+                Some x -> x
+                | None -> 0
+             end
+            ",
+            "integer"
+        );
+        inferfails!(
+            "type E := A | B end
+             match A with
+                 A -> 0
+                | false -> 1
+             end
+            ",
+            "Unknown variant in match: false.",
+            5,
+            17
         );
     }
 }
