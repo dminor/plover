@@ -107,7 +107,7 @@ impl fmt::Display for Type {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum TypedAST {
     BinaryOp(
         Type,
@@ -125,7 +125,11 @@ pub enum TypedAST {
     Identifier(Type, String),
     If(Vec<(TypedAST, TypedAST)>, Box<TypedAST>),
     Integer(i64),
-    Match(Box<TypedAST>, Type, Vec<(String, Option<TypedAST>, TypedAST)>),
+    Match(
+        Box<TypedAST>,
+        Type,
+        Vec<(String, Option<TypedAST>, TypedAST)>,
+    ),
     Program(Type, Vec<TypedAST>),
     Tuple(Type, Vec<TypedAST>),
     UnaryOp(Type, parser::Operator, Box<TypedAST>),
@@ -429,10 +433,14 @@ fn build_constraints(
             for case in cases {
                 let mut local_ids = ids.clone();
                 let typed_param = match &case.1 {
-                    Some(param) => {
-                        Some(build_param_constraints(id, constraints, &mut local_ids, &param, true)?)
-                    }
-                    None => None
+                    Some(param) => Some(build_param_constraints(
+                        id,
+                        constraints,
+                        &mut local_ids,
+                        &param,
+                        true,
+                    )?),
+                    None => None,
                 };
 
                 let typed_case = build_constraints(id, constraints, &mut local_ids, &case.2)?;

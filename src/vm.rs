@@ -23,6 +23,7 @@ pub enum Opcode {
     Div,
     Dup,
     Equal,
+    ExtVal,
     Dconst(String, String),
     Fconst(
         Option<String>,
@@ -48,6 +49,7 @@ pub enum Opcode {
     SetEnv(String),
     Srcpos(usize, usize),
     Sub,
+    TypeEq(String),
     Uconst,
 }
 
@@ -62,6 +64,7 @@ impl fmt::Display for Opcode {
             Opcode::Div => write!(f, "div"),
             Opcode::Dup => write!(f, "dup"),
             Opcode::Equal => write!(f, "eq"),
+            Opcode::ExtVal => write!(f, "extval"),
             Opcode::Dconst(_, ctor) => write!(f, "const {}", ctor),
             Opcode::Fconst(id, ip, _) => {
                 if let Some(id) = id {
@@ -89,6 +92,7 @@ impl fmt::Display for Opcode {
             Opcode::SetEnv(id) => write!(f, "setenv {}", id),
             Opcode::Srcpos(line, col) => write!(f, "srcpos {} {}", line, col),
             Opcode::Sub => write!(f, "sub"),
+            Opcode::TypeEq(typ) => write!(f, "typeq {}", typ),
             Opcode::Uconst => write!(f, "const"),
         }
     }
@@ -218,6 +222,18 @@ impl VirtualMachine {
                     Some(v) => {
                         self.stack.push(v.clone());
                         self.stack.push(v);
+                    }
+                    _ => unreachable!(),
+                },
+                Opcode::ExtVal => match self.stack.pop() {
+                    Some(Value::Datatype(_, _, v)) => {
+                        if let Value::Tuple(elements) = *v {
+                            for element in elements {
+                                self.stack.push(element);
+                            }
+                        } else {
+                            self.stack.push(*v);
+                        }
                     }
                     _ => unreachable!(),
                 },
@@ -432,6 +448,12 @@ impl VirtualMachine {
                         }
                         _ => unreachable!(),
                     },
+                    _ => unreachable!(),
+                },
+                Opcode::TypeEq(typ) => match self.stack.pop() {
+                    Some(Value::Datatype(_, variant, _)) => {
+                        self.stack.push(Value::Boolean(variant == *typ));
+                    }
                     _ => unreachable!(),
                 },
                 Opcode::Uconst => {

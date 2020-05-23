@@ -239,6 +239,7 @@ fn generate(
         }
         TypedAST::If(conds, els) => {
             let start_ip = instr.len();
+            let els_ptr: *const TypedAST = &**els;
             for cond in conds {
                 let mut then = Vec::new();
                 generate(&cond.0, vm, instr, ids);
@@ -246,17 +247,16 @@ fn generate(
                 let offset = 2 + then.len() as i64;
                 instr.push(vm::Opcode::Jz(offset));
                 instr.extend(then);
-                instr.push(vm::Opcode::Jmp(i64::max_value()));
+                instr.push(vm::Opcode::Jmp(els_ptr as i64));
             }
             generate(&els, vm, instr, ids);
 
-            // TODO: this rewrites all jmp instructions to be past the end of
-            // the if expression. This is safe as long as if is the only
-            // expression for which we use jmp.
             for i in start_ip..instr.len() {
-                if let vm::Opcode::Jmp(_) = instr[i] {
-                    let offset = (instr.len() - i) as i64;
-                    instr[i] = vm::Opcode::Jmp(offset);
+                if let vm::Opcode::Jmp(ptr) = instr[i] {
+                    if ptr == els_ptr as i64 {
+                        let offset = (instr.len() - i) as i64;
+                        instr[i] = vm::Opcode::Jmp(offset);
+                    }
                 }
             }
         }
@@ -270,7 +270,38 @@ fn generate(
         TypedAST::Integer(i) => {
             instr.push(vm::Opcode::Iconst(*i));
         }
-        TypedAST::Match(_, _, _) => {}
+        TypedAST::Match(cond, _, cases) => {
+            generate(&cond, vm, instr, ids);
+            let start_ip = instr.len();
+            let cond_ptr: *const TypedAST = &**cond;
+            for case in cases {
+                let mut then = Vec::new();
+                instr.push(vm::Opcode::Dup);
+                instr.push(vm::Opcode::TypeEq(case.0.to_string()));
+                if let Some(param) = &case.1 {
+                    then.push(vm::Opcode::ExtVal);
+                    let fun =
+                        TypedAST::Function(None, Box::new(param.clone()), Box::new(case.2.clone()));
+                    generate(&fun, vm, &mut then, ids);
+                    then.push(vm::Opcode::Call);
+                } else {
+                    generate(&case.2, vm, &mut then, ids);
+                }
+                let offset = 2 + then.len() as i64;
+                instr.push(vm::Opcode::Jz(offset));
+                instr.extend(then);
+                instr.push(vm::Opcode::Jmp(cond_ptr as i64));
+            }
+
+            for i in start_ip..instr.len() {
+                if let vm::Opcode::Jmp(ptr) = instr[i] {
+                    if ptr == cond_ptr as i64 {
+                        let offset = (instr.len() - i) as i64;
+                        instr[i] = vm::Opcode::Jmp(offset);
+                    }
+                }
+            }
+        }
         TypedAST::Program(_, expressions) => {
             for i in 0..expressions.len() {
                 generate(&expressions[i], vm, instr, ids);
@@ -713,6 +744,39 @@ mod tests {
         ",
             Integer,
             120
+        );
+        eval!(
+            "type E := A | B end
+             match B with
+                A -> 0
+                | B -> 1
+             end
+            ",
+            Integer,
+            1
+        );
+        eval!(
+            "type Maybe := Some x | None end
+             match Some 1 with
+                Some x -> x
+                | None -> 0
+             end
+            ",
+            Integer,
+            1
+        );
+        eval!(
+            "type Pair := Cons (a, b) | Null end
+             fn sum pair ->
+                 match pair with
+                    Null -> 0
+                    | Cons (a, b) -> a + b
+                 end
+             end
+             sum Null
+            ",
+            Integer,
+            0
         );
     }
 }
