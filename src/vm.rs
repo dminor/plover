@@ -24,7 +24,7 @@ pub enum Opcode {
     Dup,
     Equal,
     ExtVal,
-    Dconst(String, String),
+    Dconst(String, String, usize),
     Fconst(
         Option<String>,
         usize,
@@ -65,7 +65,7 @@ impl fmt::Display for Opcode {
             Opcode::Dup => write!(f, "dup"),
             Opcode::Equal => write!(f, "eq"),
             Opcode::ExtVal => write!(f, "extval"),
-            Opcode::Dconst(_, ctor) => write!(f, "const {}", ctor),
+            Opcode::Dconst(_, ctor, count) => write!(f, "const {} {}", ctor, count),
             Opcode::Fconst(id, ip, _) => {
                 if let Some(id) = id {
                     write!(f, "{} @{}", id, ip)
@@ -246,16 +246,38 @@ impl VirtualMachine {
                     },
                     _ => unreachable!(),
                 },
-                Opcode::Dconst(typ, ctor) => match self.stack.pop() {
-                    Some(value) => {
+                Opcode::Dconst(typ, ctor, count) => {
+                    if *count == 0 {
+                        unreachable!();
+                    } else if *count == 1 {
+                        match self.stack.pop() {
+                            Some(value) => {
+                                self.stack.push(Value::Datatype(
+                                    typ.to_string(),
+                                    ctor.to_string(),
+                                    Box::new(value),
+                                ));
+                            }
+                            _ => unreachable!(),
+                        }
+                    } else {
+                        let mut elements = Vec::new();
+                        for _ in 0..*count {
+                            match self.stack.pop() {
+                                Some(value) => {
+                                    elements.push(value);
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                        elements.reverse();
                         self.stack.push(Value::Datatype(
                             typ.to_string(),
                             ctor.to_string(),
-                            Box::new(value),
+                            Box::new(Value::Tuple(elements)),
                         ));
                     }
-                    _ => unreachable!(),
-                },
+                }
                 Opcode::Fconst(id, ip, upvalues) => {
                     let len = self.callstack.len();
                     let mut env;

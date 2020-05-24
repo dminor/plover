@@ -163,14 +163,35 @@ fn generate(
             for variant in variants {
                 if let Type::Datatype(_) = &variant.1 {
                     instr.push(vm::Opcode::Uconst);
-                    instr.push(vm::Opcode::Dconst(typ.to_string(), variant.0.to_string()));
+                    instr.push(vm::Opcode::Dconst(
+                        typ.to_string(),
+                        variant.0.to_string(),
+                        1,
+                    ));
                     instr.push(vm::Opcode::SetEnv(variant.0.to_string()));
                 } else {
-                    let mut fn_instr = Vec::new();
-                    fn_instr.push(vm::Opcode::Dup);
-                    fn_instr.push(vm::Opcode::Dconst(typ.to_string(), variant.0.to_string()));
+                    let count;
+                    if let Type::Function(fun, _) = &variant.1 {
+                        match &**fun {
+                            Type::Tuple(elements) => {
+                                count = elements.len();
+                            }
+                            _ => {
+                                count = 1;
+                            }
+                        }
+                    } else {
+                        unreachable!();
+                    }
 
-                    fn_instr.push(vm::Opcode::Ret(1));
+                    let mut fn_instr = Vec::new();
+                    fn_instr.push(vm::Opcode::Dconst(
+                        typ.to_string(),
+                        variant.0.to_string(),
+                        count,
+                    ));
+
+                    fn_instr.push(vm::Opcode::Ret(0));
                     let ip = vm.instructions.len();
                     vm.instructions.extend(fn_instr);
                     instr.push(vm::Opcode::Fconst(None, ip, HashMap::new()));
@@ -777,6 +798,34 @@ mod tests {
             ",
             Integer,
             0
+        );
+        eval!(
+            "type Pair := Cons (a, b) | Null end
+             def p := Cons(1, 2)
+             fn sum pair ->
+                 match pair with
+                    Null -> 0
+                    | Cons (a, b) -> a + b
+                 end
+             end
+             sum p
+            ",
+            Integer,
+            3
+        );
+        eval!(
+            "type Pair := Cons (a, b) | Null end
+             def p := Cons(3, Cons(2, Cons(1, Null)))
+             fn len pair ->
+                 match pair with
+                    Null -> 0
+                    | Cons (a, b) -> 1 + len b
+                 end
+             end
+             len p
+            ",
+            Integer,
+            3
         );
     }
 }
