@@ -44,7 +44,7 @@ Keywords
 --------
 
 The following are reserved keywords: *def*, *else*, *elsif*, *end*, *false*,
-*fn*, *if*, *then*, *true* and *type*.
+*fn*, *if*, *match*, *then*, *true*, *type* and *when*.
 
 Values
 ------
@@ -189,7 +189,40 @@ f 1
 would be interpreted as trying to call f with itself as an argument, rather than a
 separate definition and function call.
 
+### Match/When/End
+
+A match expression allows for code to be executed based upon which variant was used
+to construct a datatype.
+
+```
+type Pair := Cons (a, b) | Null end
+
+def list := Cons (1, Cons (2, Cons (3, Null)))
+
+fn len xs ->
+  match xs with
+    Null -> 0
+    | Cons (x, xs) -> 1 + len xs
+  end
+end
+
+len list
+
+```
+
+The implementation relies upon two extra instructions in the virtual machine,
+TypeEq, which checks which variant was used to build a datatype, and ExtVal,
+which extracts the value from the datatype and pushes it to the stack. Variants
+that have parameters are treated like function calls to create a new
+environment for the parameters.
+
+The type checking is fairly straightforward. Each variant in a match statement
+must be of the same datatype. All variants of a datatype should also be
+covered, but that is not implemented yet. The condition must resolve to a
+datatype. Using unification for type checking makes this easy, but it would
+have been unmanageable using my original, handcoded type checker.
+
 Todo
 ----
+* Ensure all variants are covered in match expressions during type checking
 * Tail call elimination
-* Match expressions
