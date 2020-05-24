@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fmt;
 
 use crate::codegen::InterpreterError;
@@ -232,12 +233,13 @@ fn build_constraints(
     id: &mut u64,
     constraints: &mut Vec<(Type, Type, usize, usize)>,
     mut ids: &mut HashMap<String, Type>,
+    datatypes: &mut HashMap<String, HashSet<String>>,
     ast: &parser::AST,
 ) -> Result<TypedAST, InterpreterError> {
     match ast {
         parser::AST::BinaryOp(op, lhs, rhs, line, col) => {
-            let typed_lhs = build_constraints(id, constraints, ids, &lhs)?;
-            let typed_rhs = build_constraints(id, constraints, ids, &rhs)?;
+            let typed_lhs = build_constraints(id, constraints, ids, datatypes, &lhs)?;
+            let typed_rhs = build_constraints(id, constraints, ids, datatypes, &rhs)?;
 
             let typ = fresh_type(id);
             match op {
@@ -281,8 +283,8 @@ fn build_constraints(
         }
         parser::AST::Boolean(b, _, _) => Ok(TypedAST::Boolean(*b)),
         parser::AST::Call(fun, arg, line, col) => {
-            let typed_fun = build_constraints(id, constraints, &mut ids, &fun)?;
-            let typed_arg = build_constraints(id, constraints, &mut ids, &arg)?;
+            let typed_fun = build_constraints(id, constraints, &mut ids, datatypes, &fun)?;
+            let typed_arg = build_constraints(id, constraints, &mut ids, datatypes, &arg)?;
 
             match &typed_fun {
                 TypedAST::Call(fun, _) => {
@@ -306,8 +308,10 @@ fn build_constraints(
             Ok(TypedAST::Call(Box::new(typed_fun), Box::new(typed_arg)))
         }
         parser::AST::Datatype(typ, variants, _, _) => {
+            let mut all_variants = HashSet::new();
             let mut typed_variants = Vec::new();
             for variant in variants {
+                all_variants.insert(variant.0.to_string());
                 match &variant.1 {
                     Some(param) => {
                         // Type for constructor function
@@ -327,6 +331,7 @@ fn build_constraints(
                     }
                 }
             }
+            datatypes.insert(typ.to_string(), all_variants);
             Ok(TypedAST::Datatype(
                 Type::Datatype(typ.to_string()),
                 typed_variants,
@@ -334,7 +339,7 @@ fn build_constraints(
         }
         parser::AST::Define(ident, value, line, col) => {
             if let parser::AST::Identifier(ident, _, _) = &**ident {
-                let typed_value = build_constraints(id, constraints, ids, &value)?;
+                let typed_value = build_constraints(id, constraints, ids, datatypes, &value)?;
                 ids.insert(ident.to_string(), type_of(&typed_value));
                 Ok(TypedAST::Define(
                     type_of(&typed_value),
@@ -364,10 +369,10 @@ fn build_constraints(
                     ident.to_string(),
                     Type::Function(Box::new(type_of(&typed_param)), Box::new(typ.clone())),
                 );
-                typed_body = build_constraints(id, constraints, &mut local_ids, &body)?;
+                typed_body = build_constraints(id, constraints, &mut local_ids, datatypes, &body)?;
                 constraints.push((typ, type_of(&typed_body), *line, *col));
             } else {
-                typed_body = build_constraints(id, constraints, &mut local_ids, &body)?;
+                typed_body = build_constraints(id, constraints, &mut local_ids, datatypes, &body)?;
             }
 
             Ok(TypedAST::Function(
@@ -396,8 +401,8 @@ fn build_constraints(
             let mut inferred_type = Type::Boolean;
             let mut typed_conds = Vec::new();
             for cond in conds {
-                let ifpart = build_constraints(id, constraints, ids, &cond.0)?;
-                let thenpart = build_constraints(id, constraints, ids, &cond.1)?;
+                let ifpart = build_constraints(id, constraints, ids, datatypes, &cond.0)?;
+                let thenpart = build_constraints(id, constraints, ids, datatypes, &cond.1)?;
                 constraints.push((Type::Boolean, type_of(&ifpart), *line, *col));
                 if first {
                     first = false;
@@ -408,13 +413,13 @@ fn build_constraints(
 
                 typed_conds.push((ifpart, thenpart));
             }
-            let elsepart = build_constraints(id, constraints, ids, &els)?;
+            let elsepart = build_constraints(id, constraints, ids, datatypes, &els)?;
             constraints.push((inferred_type, type_of(&elsepart), *line, *col));
             Ok(TypedAST::If(typed_conds, Box::new(elsepart)))
         }
         parser::AST::Integer(i, _, _) => Ok(TypedAST::Integer(*i)),
         parser::AST::Match(cond, cases, line, col) => {
-            let typed_cond = build_constraints(id, constraints, ids, &cond)?;
+            let typed_cond = build_constraints(id, constraints, ids, datatypes, &cond)?;
             match type_of(&typed_cond) {
                 Type::Datatype(_) | Type::Polymorphic(_) => {}
                 _ => {
@@ -429,6 +434,7 @@ fn build_constraints(
             let mut first = true;
             let mut inferred_type = Type::Unit;
             let mut typed_cases = Vec::new();
+            let mut present_variants = HashSet::new();
             let mut datatype = Type::Unit;
             for case in cases {
                 let mut local_ids = ids.clone();
@@ -443,7 +449,8 @@ fn build_constraints(
                     None => None,
                 };
 
-                let typed_case = build_constraints(id, constraints, &mut local_ids, &case.2)?;
+                let typed_case =
+                    build_constraints(id, constraints, &mut local_ids, datatypes, &case.2)?;
                 if first {
                     inferred_type = type_of(&typed_case);
                 } else {
@@ -453,6 +460,7 @@ fn build_constraints(
                 let variant_type;
                 match ids.get(&case.0) {
                     Some(typ) => {
+                        present_variants.insert(case.0.to_string());
                         let typ = match typ {
                             Type::Function(_, body) => body,
                             _ => typ,
@@ -497,12 +505,34 @@ fn build_constraints(
                 typed_cases.push((case.0.to_string(), typed_param, typed_case));
                 first = false;
             }
+
+            if let Some(all_variants) = datatypes.get(&datatype.to_string()) {
+                let mut missing: Vec<&String> =
+                    all_variants.difference(&present_variants).collect();
+                if !missing.is_empty() {
+                    missing.sort();
+                    let mut err = "Missing variants in match of ".to_string();
+                    err.push_str(&datatype.to_string());
+                    err.push(':');
+                    for variant in missing {
+                        err.push(' ');
+                        err.push_str(variant);
+                    }
+                    err.push('.');
+                    return Err(InterpreterError {
+                        err: err,
+                        line: *line,
+                        col: *col,
+                    });
+                }
+            }
+
             Ok(TypedAST::Match(Box::new(typed_cond), datatype, typed_cases))
         }
         parser::AST::Program(expressions, line, col) => {
             let mut typed_expressions = Vec::new();
             for expr in expressions {
-                let typed_expr = build_constraints(id, constraints, ids, &expr)?;
+                let typed_expr = build_constraints(id, constraints, ids, datatypes, &expr)?;
                 typed_expressions.push(typed_expr);
             }
             match typed_expressions.last() {
@@ -515,7 +545,7 @@ fn build_constraints(
             }
         }
         parser::AST::UnaryOp(op, ast, line, col) => {
-            let typed = build_constraints(id, constraints, ids, ast)?;
+            let typed = build_constraints(id, constraints, ids, datatypes, ast)?;
             let typ = fresh_type(id);
             let op_typ = match op {
                 parser::Operator::Minus => Type::Integer,
@@ -533,7 +563,7 @@ fn build_constraints(
             let mut types = Vec::new();
             let mut typed_elements = Vec::new();
             for element in elements {
-                let typed_element = build_constraints(id, constraints, ids, &element)?;
+                let typed_element = build_constraints(id, constraints, ids, datatypes, &element)?;
                 types.push(type_of(&typed_element));
                 typed_elements.push(typed_element);
             }
@@ -639,8 +669,10 @@ pub fn infer(
 ) -> Result<TypedAST, InterpreterError> {
     let mut id = 1;
     let mut constraints = Vec::new();
+    let mut datatypes: HashMap<String, HashSet<String>> = HashMap::new();
 
-    let mut typed_ast = build_constraints(&mut id, &mut constraints, &mut ids, &ast)?;
+    let mut typed_ast =
+        build_constraints(&mut id, &mut constraints, &mut ids, &mut datatypes, &ast)?;
     let mut bindings: HashMap<String, Type> = HashMap::new();
     for mut constraint in constraints {
         substitute_in_type(&bindings, &mut constraint.0);
@@ -944,6 +976,16 @@ mod tests {
             ",
             "Unknown variant in match: false.",
             5,
+            17
+        );
+        inferfails!(
+            "type E := A | B | C | D end
+             match A with
+                 A -> 0
+             end
+            ",
+            "Missing variants in match of E: B C D.",
+            4,
             17
         );
     }

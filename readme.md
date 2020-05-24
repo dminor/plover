@@ -217,12 +217,11 @@ that have parameters are treated like function calls to create a new
 environment for the parameters.
 
 The type checking is fairly straightforward. Each variant in a match statement
-must be of the same datatype. All variants of a datatype should also be
-covered, but that is not implemented yet. The condition must resolve to a
-datatype. Using unification for type checking makes this easy, but it would
-have been unmanageable using my original, handcoded type checker.
+must be of the same datatype. All variants of a datatype must also be
+covered in the match expression. The condition must resolve to a datatype.
+Using unification for type checking makes this easy, but it would have been
+unmanageable using my original, handcoded type checker.
 
 Todo
 ----
-* Ensure all variants are covered in match expressions during type checking
 * Tail call elimination
