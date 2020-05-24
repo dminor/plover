@@ -237,7 +237,9 @@ macro_rules! expect {
                 }
             }
         }
-        let mut result = None;
+        // Split on two lines to fool clippy's useless_let_if_seq
+        let mut result;
+        result = None;
         $(
             if s == $keyword {
                 result = Some(s.to_string());
@@ -504,7 +506,7 @@ fn program(ps: ParseState) -> ParseResult {
             }
         }
     }
-    if expressions.len() > 0 {
+    if !expressions.is_empty() {
         ParseResult::Matched(AST::Program(expressions, ps.line, ps.col), lps)
     } else {
         ParseResult::Error("Expected expression.".to_string(), lps.line, lps.col)
@@ -534,7 +536,7 @@ fn conditional(ps: ParseState) -> ParseResult {
                                         "else" => match expression(lps) {
                                             ParseResult::Matched(els, ps) => {
                                                 lps = skip!(ps, whitespace);
-                                                if let Some(_) = expect!(lps, "end") {
+                                                if expect!(lps, "end").is_some() {
                                                     return ParseResult::Matched(
                                                         AST::If(
                                                             conds,
@@ -651,7 +653,7 @@ fn equality(ps: ParseState) -> ParseResult {
 
 fn datatype(ps: ParseState) -> ParseResult {
     let mut lps = ps.clone();
-    if let Some(_) = expect!(lps, "type") {
+    if expect!(lps, "type").is_some() {
         lps = skip!(lps, whitespace);
         match identifier(lps) {
             ParseResult::Matched(typename, ps) => {
@@ -700,7 +702,7 @@ fn datatype(ps: ParseState) -> ParseResult {
                         }
                         lps = skip!(lps, whitespace);
                         if Some(&'|') != lps.chars.peek() {
-                            if let Some(_) = expect!(lps, "end") {
+                            if expect!(lps, "end").is_some() {
                                 break;
                             } else {
                                 return ParseResult::Error(
@@ -715,12 +717,10 @@ fn datatype(ps: ParseState) -> ParseResult {
                     }
                     if variants.is_empty() {
                         ParseResult::Error("Expected identifier.".to_string(), lps.line, lps.col)
+                    } else if let AST::Identifier(s, _, _) = typename {
+                        ParseResult::Matched(AST::Datatype(s, variants, lps.line, lps.col), lps)
                     } else {
-                        if let AST::Identifier(s, _, _) = typename {
-                            ParseResult::Matched(AST::Datatype(s, variants, lps.line, lps.col), lps)
-                        } else {
-                            unreachable!()
-                        }
+                        unreachable!()
                     }
                 } else {
                     ParseResult::Error("Expected :=.".to_string(), lps.line, lps.col)
@@ -736,14 +736,15 @@ fn datatype(ps: ParseState) -> ParseResult {
     }
 }
 
+#[allow(clippy::cognitive_complexity)]
 fn match_expr(ps: ParseState) -> ParseResult {
     let mut lps = ps.clone();
-    if let Some(_) = expect!(lps, "match") {
+    if expect!(lps, "match").is_some() {
         lps = skip!(lps, whitespace);
         match call(lps) {
             ParseResult::Matched(cond, ps) => {
                 lps = skip!(ps, whitespace);
-                if let Some(_) = expect!(lps, "with") {
+                if expect!(lps, "with").is_some() {
                     lps = skip!(lps, whitespace);
                     let mut cases = Vec::new();
                     loop {
@@ -812,7 +813,7 @@ fn match_expr(ps: ParseState) -> ParseResult {
                         lps = skip!(lps, whitespace);
 
                         if Some(&'|') != lps.chars.peek() {
-                            if let Some(_) = expect!(lps, "end") {
+                            if expect!(lps, "end").is_some() {
                                 break;
                             } else {
                                 return ParseResult::Error(
@@ -936,17 +937,12 @@ fn value(ps: ParseState) -> ParseResult {
 fn whitespace(ps: ParseState) -> ParseResult {
     let mut lps = ps.clone();
     let mut succeeded = false;
-    loop {
-        match lps.chars.peek() {
-            Some(c) => match c {
-                ' ' | '\n' => {
-                    succeeded = true;
-                    lps.next();
-                }
-                _ => {
-                    break;
-                }
-            },
+    while let Some(c) = lps.chars.peek() {
+        match c {
+            ' ' | '\n' => {
+                succeeded = true;
+                lps.next();
+            }
             _ => {
                 break;
             }
@@ -971,9 +967,10 @@ fn boolean(ps: ParseState) -> ParseResult {
     }
 }
 
+#[allow(clippy::cognitive_complexity)]
 fn function(ps: ParseState) -> ParseResult {
     let mut lps = ps.clone();
-    if let Some(_) = expect!(lps, "fn") {
+    if expect!(lps, "fn").is_some() {
         lps = skip!(lps, whitespace);
         match value(lps) {
             ParseResult::Matched(id_or_param, ps) => {
@@ -982,7 +979,7 @@ fn function(ps: ParseState) -> ParseResult {
                     match program(lps) {
                         ParseResult::Matched(body, ps) => {
                             lps = ps;
-                            if let Some(_) = expect!(lps, "end") {
+                            if expect!(lps, "end").is_some() {
                                 ParseResult::Matched(
                                     AST::Function(
                                         None,
@@ -1010,7 +1007,7 @@ fn function(ps: ParseState) -> ParseResult {
                                 match program(lps) {
                                     ParseResult::Matched(body, ps) => {
                                         lps = ps;
-                                        if let Some(_) = expect!(lps, "end") {
+                                        if expect!(lps, "end").is_some() {
                                             if let AST::Identifier(id, _, _) = id_or_param {
                                                 ParseResult::Matched(
                                                     AST::Function(
@@ -1071,23 +1068,16 @@ fn identifier(ps: ParseState) -> ParseResult {
     let mut lps = ps.clone();
     let mut s = String::new();
     let mut first = true;
-    loop {
-        match lps.chars.peek() {
-            Some(c) => {
-                if first && c.is_alphabetic() {
-                    first = false;
-                    s.push(*c);
-                    lps.next();
-                } else if !first && c.is_alphanumeric() {
-                    s.push(*c);
-                    lps.next();
-                } else {
-                    break;
-                }
-            }
-            _ => {
-                break;
-            }
+    while let Some(c) = lps.chars.peek() {
+        if first && c.is_alphabetic() {
+            first = false;
+            s.push(*c);
+            lps.next();
+        } else if !first && c.is_alphanumeric() {
+            s.push(*c);
+            lps.next();
+        } else {
+            break;
         }
     }
     if !s.is_empty() {
@@ -1105,19 +1095,12 @@ fn identifier(ps: ParseState) -> ParseResult {
 fn integer(ps: ParseState) -> ParseResult {
     let mut lps = ps.clone();
     let mut s = String::new();
-    loop {
-        match lps.chars.peek() {
-            Some(c) => {
-                if c.is_numeric() {
-                    s.push(*c);
-                    lps.next();
-                } else {
-                    break;
-                }
-            }
-            None => {
-                break;
-            }
+    while let Some(c) = lps.chars.peek() {
+        if c.is_numeric() {
+            s.push(*c);
+            lps.next();
+        } else {
+            break;
         }
     }
     match s.parse::<i64>() {
@@ -1225,7 +1208,7 @@ pub fn parse(src: &str) -> ParseResult {
     ps = skip!(ps, whitespace);
     match program(ps) {
         ParseResult::Matched(parsed, mut ps) => {
-            if let Some(_) = ps.next() {
+            if ps.next().is_some() {
                 ParseResult::Error("Trailing characters.".to_string(), ps.line, ps.col)
             } else {
                 ParseResult::Matched(parsed, ps)

@@ -54,7 +54,7 @@ pub enum Opcode {
 }
 
 impl fmt::Display for Opcode {
-    fn fmt<'a>(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Opcode::Add => write!(f, "add"),
             Opcode::And => write!(f, "and"),
@@ -126,7 +126,7 @@ pub enum Value {
 }
 
 impl fmt::Display for Value {
-    fn fmt<'a>(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Value::Boolean(b) => write!(f, "{}", b),
             Value::Datatype(n, _, v) => {
@@ -166,6 +166,7 @@ pub struct VirtualMachine {
 }
 
 impl VirtualMachine {
+    #[allow(clippy::cognitive_complexity)]
     pub fn run(&mut self) -> Result<(), codegen::InterpreterError> {
         while self.ip < self.instructions.len() {
             match &self.instructions[self.ip] {
@@ -280,26 +281,22 @@ impl VirtualMachine {
                 }
                 Opcode::Fconst(id, ip, upvalues) => {
                     let len = self.callstack.len();
-                    let mut env;
-                    if len > 0 {
-                        env = self.callstack[len - 1].1.clone();
+                    let mut env = if len > 0 {
+                        self.callstack[len - 1].1.clone()
                     } else {
-                        env = self.env.clone();
-                    }
+                        self.env.clone()
+                    };
                     if let Some((ident, ip)) = &env.fun {
                         env.values
                             .insert(ident.to_string(), Value::Function(*ip, env.clone()));
                     }
                     for upvalue in upvalues {
-                        match self.callstack.last() {
-                            Some((_, _, sp, _)) => {
-                                let id = upvalue.0;
-                                let offset = (upvalue.1).0;
-                                let value = self.stack[*sp - offset].clone();
-                                env.values.insert(id.to_string(), value);
-                                env.types.insert(id.to_string(), (upvalue.1).1.clone());
-                            }
-                            None => {}
+                        if let Some((_, _, sp, _)) = self.callstack.last() {
+                            let id = upvalue.0;
+                            let offset = (upvalue.1).0;
+                            let value = self.stack[*sp - offset].clone();
+                            env.values.insert(id.to_string(), value);
+                            env.types.insert(id.to_string(), (upvalue.1).1.clone());
                         }
                     }
                     if let Some(id) = id {
@@ -309,12 +306,11 @@ impl VirtualMachine {
                 }
                 Opcode::GetEnv(id) => {
                     let len = self.callstack.len();
-                    let env;
-                    if len > 0 {
-                        env = &self.callstack[len - 1].1;
+                    let env = if len > 0 {
+                        &self.callstack[len - 1].1
                     } else {
-                        env = &self.env;
-                    }
+                        &self.env
+                    };
                     match env.values.get(id) {
                         Some(x) => {
                             self.stack.push(x.clone());
@@ -449,12 +445,11 @@ impl VirtualMachine {
                 Opcode::SetEnv(id) => match self.stack.pop() {
                     Some(x) => {
                         let len = self.callstack.len();
-                        let values;
-                        if len > 0 {
-                            values = &mut self.callstack[len - 1].1.values;
+                        let values = if len > 0 {
+                            &mut self.callstack[len - 1].1.values
                         } else {
-                            values = &mut self.env.values;
-                        }
+                            &mut self.env.values
+                        };
                         values.insert(id.to_string(), x);
                     }
                     _ => unreachable!(),

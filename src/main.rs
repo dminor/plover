@@ -51,13 +51,11 @@ fn eval(filename: &str, src: &str, vm: &mut vm::VirtualMachine) {
 fn main() -> io::Result<()> {
     let mut vm = vm::VirtualMachine::new();
     let args: Vec<String> = env::args().collect();
-    for i in 1..args.len() {
-        let filename = &args[i];
+    for filename in args.iter().skip(1) {
         let mut file = File::open(&filename)?;
         let mut program = String::new();
         file.read_to_string(&mut program)?;
         eval(&filename, &program, &mut vm);
-        return Ok(());
     }
 
     let stdin = io::stdin();

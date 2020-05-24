@@ -86,7 +86,7 @@ impl PartialEq for Type {
 }
 
 impl fmt::Display for Type {
-    fn fmt<'a>(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Type::Boolean => write!(f, "boolean"),
             Type::Function(param, body) => write!(f, "{} -> {}", param, body),
@@ -157,7 +157,7 @@ pub fn type_of(ast: &TypedAST) -> Type {
         TypedAST::If(_, els) => type_of(&els),
         TypedAST::Integer(_) => Type::Integer,
         TypedAST::Match(_, _, cases) => {
-            if cases.len() > 0 {
+            if !cases.is_empty() {
                 type_of(&cases[0].2)
             } else {
                 unreachable!()
@@ -187,14 +187,14 @@ fn build_param_constraints(
                 if insert_into_ids {
                     ids.insert(s.clone(), typ.clone());
                 }
-                return Ok(TypedAST::Identifier(typ, s.clone()));
+                Ok(TypedAST::Identifier(typ, s.clone()))
             }
             None => {
                 let typ = fresh_type(id);
                 if insert_into_ids {
                     ids.insert(s.clone(), typ.clone());
                 }
-                return Ok(TypedAST::Identifier(typ, s.clone()));
+                Ok(TypedAST::Identifier(typ, s.clone()))
             }
         },
         parser::AST::Tuple(elements, _, _) => {
@@ -382,18 +382,16 @@ fn build_constraints(
             ))
         }
         parser::AST::Identifier(s, line, col) => match ids.get(s) {
-            Some(typ) => {
-                return Ok(TypedAST::Identifier(typ.clone(), s.clone()));
-            }
+            Some(typ) => Ok(TypedAST::Identifier(typ.clone(), s.clone())),
             None => {
                 let mut err = "Unknown identifier: ".to_string();
                 err.push_str(s);
                 err.push('.');
-                return Err(InterpreterError {
+                Err(InterpreterError {
                     err: err.to_string(),
                     line: *line,
                     col: *col,
-                });
+                })
             }
         },
         parser::AST::If(conds, els, line, col) => {
@@ -520,7 +518,7 @@ fn build_constraints(
                     }
                     err.push('.');
                     return Err(InterpreterError {
-                        err: err,
+                        err,
                         line: *line,
                         col: *col,
                     });
@@ -600,7 +598,7 @@ fn substitute_in_type<S: ::std::hash::BuildHasher>(
 fn substitute<S: ::std::hash::BuildHasher>(
     bindings: &HashMap<String, Type, S>,
     ast: &mut TypedAST,
-) -> () {
+) {
     match ast {
         TypedAST::BinaryOp(typ, _, lhs, rhs, _, _) => {
             if let Type::Polymorphic(s) = typ {

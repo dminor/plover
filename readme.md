@@ -224,4 +224,12 @@ unmanageable using my original, handcoded type checker.
 
 Todo
 ----
+Although Schönfinkel was interesting and challenging to work on, it was not as
+much fun as the other interpreters I've done. So it's unlikely that I'll ever
+get around to any of these.
 * Tail call elimination
+* Replace vm with
+[Cranelift](https://github.com/bytecodealliance/wasmtime/tree/master/cranelift)
+or
+[Inkwell](https://github.com/TheDan64/inkwell) code generation.
+* Replace hand written parser with proper library. Maybe [Peg](https://crates.io/crates/peg)?

@@ -14,7 +14,7 @@ pub struct InterpreterError {
 }
 
 impl fmt::Display for InterpreterError {
-    fn fmt<'a>(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "InterpreterError: {}", self.err)
     }
 }
@@ -37,7 +37,7 @@ fn find_upvalues(
         }
         TypedAST::Define(_, id, value) => {
             // Shadow id while it is in scope
-            if let Some(_) = ids.get(id) {
+            if ids.get(id).is_some() {
                 ids.remove(id);
             }
             find_upvalues(value, ids, upvalues);
@@ -54,12 +54,11 @@ fn find_upvalues(
             }
             find_upvalues(&els, ids, upvalues);
         }
-        TypedAST::Identifier(typ, id) => match ids.get(id) {
-            Some(offset) => {
+        TypedAST::Identifier(typ, id) => {
+            if let Some(offset) = ids.get(id) {
                 upvalues.insert(id.to_string(), (*offset, typ.clone()));
             }
-            None => {}
-        },
+        }
         TypedAST::Program(_, expressions) => {
             for expression in expressions {
                 find_upvalues(expression, ids, upvalues);
@@ -77,6 +76,7 @@ fn find_upvalues(
     }
 }
 
+#[allow(clippy::cognitive_complexity)]
 fn generate(
     ast: &TypedAST,
     vm: &mut vm::VirtualMachine,
@@ -242,7 +242,7 @@ fn generate(
                 if param_ids.contains(id) {
                     continue;
                 }
-                if let Some(_) = ids.get(id) {
+                if ids.get(id).is_some() {
                     local_ids.remove(id);
                 }
             }
@@ -403,9 +403,7 @@ pub fn eval(vm: &mut vm::VirtualMachine, ast: &parser::AST) -> Result<vm::Value,
                 Err(err) => Err(err),
             }
         }
-        Err(err) => {
-            return Err(err);
-        }
+        Err(err) => Err(err),
     }
 }
 
