@@ -20,7 +20,7 @@ inference. This was an evolution. The first implementation did limited, hard
 coded type inference based upon operator types, which worked while the
 language remained simple. I then took a break, learned about
 [unification](https://en.wikipedia.org/wiki/Unification_(computer_science)) by
-writing [Tern](https://github.com/dminor/tern) and came back. Essentially,
+working on a datalog implementation and came back. Essentially,
 the type inference works by assigning types to every node in the abstract
 syntax tree, generating constraints based upon how the nodes are used, and then
 uses unification solve these constraints to determine types. For example, in
