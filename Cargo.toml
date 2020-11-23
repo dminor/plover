@@ -1,5 +1,5 @@
 [package]
-name = "schönfinkel"
+name = "tern"
 version = "0.1.0"
 authors = ["dminor"]
 edition = "2018"

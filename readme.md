@@ -1,7 +1,7 @@
-Schönfinkel
+Tern
 ===========
 
-Schönfinkel is a little language written as a exercise to learn more about type
+Tern is a little language written as a exercise to learn more about type
 checking and type inference. It is third in a series of interpreters
 I've been working on. The first,
 [Scoundrel](https://github.com/dminor/scoundrel) was a purely functional
@@ -10,12 +10,12 @@ It worked by evaluating the abstract syntax tree. The second,
 [Walden](https://github.com/dminor/walden), a Smalltalk/Self dialect,
 added a virtual machine and mutable state.
 
-To keep things interesting Schönfinkel uses parser combinators rather than a
+To keep things interesting Tern uses parser combinators rather than a
 separate lexer and recursive descent parser like in Scoundrel and Walden. I
 probably should have learned to use an existing parser combinator library
 before trying to roll my own, the implementation ended up a bit messy.
 
-The language is purely functional. Schönfinkel uses Hindley-Milner style type
+The language is purely functional. Tern uses Hindley-Milner style type
 inference. This was an evolution. The first implementation did limited, hard
 coded type inference based upon operator types, which worked while the
 language remained simple. I then took a break, learned about
@@ -27,18 +27,14 @@ uses unification solve these constraints to determine types. For example, in
 an if/then/else statement, the value in the *if* test must be a boolean, and
 the types in the *then* and *else* branches must match.
 
-Schönfinkel was much more time consuming to write than Scoundrel or Walden,
+Tern was much more time consuming to write than Scoundrel or Walden,
 and I ended up taking a eight month break in between getting the initial
 interpreter working, and coming back to redo type inference with unification
 and add user data types. With type inference and a virtual machine, adding a
 new language feature requires parser work, type inference work, and code
 generation, which slowed down the development cycle and made it hard to keep
 momentum on the project. It's a lot of fun to see a new part of a language come
-alive in an interpreter, and that was a lot slower in Schönfinkel.
-
-The language is named after
-[Moses Schönfinkel](https://en.wikipedia.org/wiki/Moses_Sch%C3%B6nfinkel), a
-logician.
+alive in an interpreter, and that was a lot slower in Tern.
 
 Keywords
 --------
@@ -224,7 +220,7 @@ unmanageable using my original, handcoded type checker.
 
 Todo
 ----
-Although Schönfinkel was interesting and challenging to work on, it was not as
+Although Tern was interesting and challenging to work on, it was not as
 much fun as the other interpreters I've done. So it's unlikely that I'll ever
 get around to any of these.
 * Tail call elimination
