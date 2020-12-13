@@ -28,11 +28,7 @@ impl PartialEq for Type {
         }
         match self {
             Type::Boolean => {
-                if let Type::Boolean = other {
-                    true
-                } else {
-                    false
-                }
+                matches!(other, Type::Boolean)
             }
             Type::Function(param, body) => {
                 if let Type::Function(other_param, other_body) = other {
@@ -42,11 +38,7 @@ impl PartialEq for Type {
                 }
             }
             Type::Integer => {
-                if let Type::Integer = other {
-                    true
-                } else {
-                    false
-                }
+                matches!(other, Type::Integer)
             }
             Type::Polymorphic(s) => {
                 if let Type::Polymorphic(t) = other {
@@ -68,11 +60,7 @@ impl PartialEq for Type {
                 }
             }
             Type::Unit => {
-                if let Type::Unit = other {
-                    true
-                } else {
-                    false
-                }
+                matches!(other, Type::Unit)
             }
             Type::Datatype(s) => {
                 if let Type::Datatype(t) = other {
@@ -148,7 +136,7 @@ pub fn type_of(ast: &TypedAST) -> Type {
         | TypedAST::UnaryOp(typ, _, _) => typ.clone(),
         TypedAST::Boolean(_) => Type::Boolean,
         TypedAST::Call(fun, _) => match type_of(fun) {
-            Type::Function(_, body) => *body.clone(),
+            Type::Function(_, body) => *body,
             _ => unreachable!(),
         },
         TypedAST::Function(_, param, body) => {
@@ -387,7 +375,7 @@ fn build_constraints(
                 err.push_str(s);
                 err.push('.');
                 Err(InterpreterError {
-                    err: err.to_string(),
+                    err,
                     line: *line,
                     col: *col,
                 })
@@ -480,7 +468,7 @@ fn build_constraints(
                             err.push_str(&variant_type.to_string());
                             err.push('.');
                             return Err(InterpreterError {
-                                err: err.to_string(),
+                                err,
                                 line: *line,
                                 col: *col,
                             });
@@ -492,7 +480,7 @@ fn build_constraints(
                         err.push('.');
 
                         return Err(InterpreterError {
-                            err: err.to_string(),
+                            err,
                             line: *line,
                             col: *col,
                         });
@@ -683,7 +671,7 @@ pub fn infer(
             err.push('.');
 
             return Err(InterpreterError {
-                err: err.to_string(),
+                err,
                 line: constraint.2,
                 col: constraint.3,
             });

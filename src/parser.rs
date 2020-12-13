@@ -157,7 +157,7 @@ fn astify(pair: Pair<Rule>) -> AST {
             let mut inner = pair.into_inner();
             let mut lhs = astify(inner.next().unwrap());
             loop {
-                if let None = inner.peek() {
+                if inner.peek().is_none() {
                     break;
                 } else {
                     let pair = inner.next().unwrap();
@@ -186,7 +186,7 @@ fn astify(pair: Pair<Rule>) -> AST {
             let (line, col) = pair.as_span().start_pos().line_col();
             let mut inner = pair.into_inner();
             let value_or_fn = astify(inner.next().unwrap());
-            if let Some(_) = inner.peek() {
+            if inner.peek().is_some() {
                 AST::Call(
                     Box::new(value_or_fn),
                     Box::new(astify(inner.next().unwrap())),
@@ -201,7 +201,7 @@ fn astify(pair: Pair<Rule>) -> AST {
             let mut inner = pair.into_inner();
             let mut lhs = astify(inner.next().unwrap());
             loop {
-                if let None = inner.peek() {
+                if inner.peek().is_none() {
                     break;
                 } else {
                     let pair = inner.next().unwrap();
@@ -230,7 +230,7 @@ fn astify(pair: Pair<Rule>) -> AST {
                 let mut inner = pair.into_inner();
                 loop {
                     let cond_or_else = astify(inner.next().unwrap());
-                    if let Some(_) = inner.peek() {
+                    if inner.peek().is_some() {
                         let then = astify(inner.next().unwrap());
                         conds.push((cond_or_else, then));
                     } else {
@@ -273,7 +273,7 @@ fn astify(pair: Pair<Rule>) -> AST {
             let mut inner = pair.into_inner();
             let mut lhs = astify(inner.next().unwrap());
             loop {
-                if let None = inner.peek() {
+                if inner.peek().is_none() {
                     break;
                 } else {
                     let pair = inner.next().unwrap();
@@ -298,7 +298,7 @@ fn astify(pair: Pair<Rule>) -> AST {
             let mut inner = pair.into_inner();
             let id_or_param = inner.next().unwrap();
             let param_or_body = astify(inner.next().unwrap());
-            if let None = inner.peek() {
+            if inner.peek().is_none() {
                 AST::Function(
                     None,
                     Box::new(astify(id_or_param)),
@@ -341,7 +341,7 @@ fn astify(pair: Pair<Rule>) -> AST {
                 };
                 let expr = astify(inner.next().unwrap());
                 cases.push((id, param, expr));
-                if let None = inner.peek() {
+                if inner.peek().is_none() {
                     break;
                 }
             }
@@ -351,7 +351,7 @@ fn astify(pair: Pair<Rule>) -> AST {
             let mut inner = pair.into_inner();
             let mut lhs = astify(inner.next().unwrap());
             loop {
-                if let None = inner.peek() {
+                if inner.peek().is_none() {
                     break;
                 } else {
                     let pair = inner.next().unwrap();
@@ -406,7 +406,7 @@ fn astify(pair: Pair<Rule>) -> AST {
             let (line, col) = pair.as_span().start_pos().line_col();
             let mut elements = Vec::new();
             let mut inner = pair.into_inner();
-            while let Some(_) = inner.peek() {
+            while inner.peek().is_some() {
                 elements.push(astify(inner.next().unwrap()));
             }
             AST::Tuple(elements, line, col)
