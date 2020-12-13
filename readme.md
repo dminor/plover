@@ -1,5 +1,5 @@
 Tern
-===========
+====
 
 Tern is a little language written as a exercise to learn more about type
 checking and type inference. It is third in a series of interpreters
@@ -10,10 +10,12 @@ It worked by evaluating the abstract syntax tree. The second,
 [Walden](https://github.com/dminor/walden), a Smalltalk/Self dialect,
 added a virtual machine and mutable state.
 
-To keep things interesting Tern uses parser combinators rather than a
-separate lexer and recursive descent parser like in Scoundrel and Walden. I
+I initially wrote Tern to use parser combinators rather than a using a separate
+lexer and recursive descent parser like in Scoundrel and Walden. I
 probably should have learned to use an existing parser combinator library
-before trying to roll my own, the implementation ended up a bit messy.
+before trying to make my own, the implementation ended up a bit messy. I ended
+up replacing this with a [Pest](https://pest.rs/) based parser, which was much
+nicer.
 
 The language is purely functional. Tern uses Hindley-Milner style type
 inference. This was an evolution. The first implementation did limited, hard
@@ -82,16 +84,16 @@ Lexical closures are supported and it is possible for a function to return anoth
 function:
 
 ```
-def adder := fn t -> fn x -> x + t end end
-def f := adder 1
-f 2
+def adder := fn (t) -> fn (x) -> x + t end end
+def f := adder (1)
+f (2)
 ```
 
 Functions can optionally take a name which is defined inside the body to allow
 for recursive calls.
 
 ```
-fn fact n ->
+fn fact (n) ->
     fn iter (n, acc) ->
         if n == 0 then
             acc
@@ -164,26 +166,23 @@ function is applied.
 
 ```
 fn f x -> x + 1 end
-f 1
+f (1)
 ```
 
-Anonymous functions can be called by placing a value next to the function
-definition.
+Functions can be called by placing a value next to the function definition.
 
 ```
-fn x -> x + 1 end 1
+fn x -> x + 1 end (1)
 ```
 
-This is not allowed for named functions, as it leads to syntactical oddities, for
-instance:
+This lead to some annoying ambiguities as to whether a function call was intended
+or not. For example, the code below is parsed as attempting to apply the function
+t to the arguments in parentheses:
 
 ```
-fn f x -> x + 1 end
-f 1
+def adder := fn (t) -> fn (x) -> x + t end end
+(adder(1)(2))
 ```
-
-would be interpreted as trying to call f with itself as an argument, rather than a
-separate definition and function call.
 
 ### Match/When/End
 
@@ -195,14 +194,14 @@ type Pair := Cons (a, b) | Null end
 
 def list := Cons (1, Cons (2, Cons (3, Null)))
 
-fn len xs ->
+fn len (xs) ->
   match xs with
     Null -> 0
-    | Cons (x, xs) -> 1 + len xs
+    | Cons (x, xs) -> 1 + len (xs)
   end
 end
 
-len list
+len (list)
 
 ```
 
@@ -217,15 +216,3 @@ must be of the same datatype. All variants of a datatype must also be
 covered in the match expression. The condition must resolve to a datatype.
 Using unification for type checking makes this easy, but it would have been
 unmanageable using my original, handcoded type checker.
-
-Todo
-----
-Although Tern was interesting and challenging to work on, it was not as
-much fun as the other interpreters I've done. So it's unlikely that I'll ever
-get around to any of these.
-* Tail call elimination
-* Replace vm with
-[Cranelift](https://github.com/bytecodealliance/wasmtime/tree/master/cranelift)
-or
-[Inkwell](https://github.com/TheDan64/inkwell) code generation.
-* Replace hand written parser with proper library. Maybe [Peg](https://crates.io/crates/peg)?

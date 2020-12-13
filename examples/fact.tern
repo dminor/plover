@@ -1,4 +1,4 @@
-fn fact n ->
+fn fact (n) ->
     fn iter (n, acc) ->
         if n == 0 then
             acc
@@ -9,4 +9,4 @@ fn fact n ->
     iter (n, 1)
 end
 
-fact 10
+fact (10)

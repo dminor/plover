@@ -225,7 +225,6 @@ fn build_param_constraints(
             line: *line,
             col: *col,
         }),
-        parser::AST::None => unreachable!(),
     }
 }
 
@@ -568,7 +567,6 @@ fn build_constraints(
             Ok(TypedAST::Tuple(Type::Tuple(types), typed_elements))
         }
         parser::AST::Unit(_, _) => Ok(TypedAST::Unit),
-        _ => unreachable!(),
     }
 }
 
@@ -707,7 +705,7 @@ mod tests {
         ($input:expr, $value:expr) => {{
             let mut ids = HashMap::new();
             match parser::parse($input) {
-                parser::ParseResult::Matched(ast, _) => match typeinfer::infer(&ast, &mut ids) {
+                Ok(ast) => match typeinfer::infer(&ast, &mut ids) {
                     Ok(typed_ast) => {
                         assert_eq!(type_of(&typed_ast).to_string(), $value);
                     }
@@ -715,10 +713,7 @@ mod tests {
                         assert!(false);
                     }
                 },
-                parser::ParseResult::NotMatched(_) => {
-                    assert!(false);
-                }
-                parser::ParseResult::Error(_, _, _) => {
+                Err(_) => {
                     assert!(false);
                 }
             }
@@ -729,7 +724,7 @@ mod tests {
         ($input:expr, $err:expr, $line:expr, $col:expr) => {{
             let mut ids = HashMap::new();
             match parser::parse($input) {
-                parser::ParseResult::Matched(ast, _) => match typeinfer::infer(&ast, &mut ids) {
+                Ok(ast) => match typeinfer::infer(&ast, &mut ids) {
                     Ok(_) => {
                         assert!(false);
                     }
@@ -739,10 +734,7 @@ mod tests {
                         assert_eq!(err.col, $col);
                     }
                 },
-                parser::ParseResult::NotMatched(_) => {
-                    assert!(false);
-                }
-                parser::ParseResult::Error(_, _, _) => {
+                Err(_) => {
                     assert!(false);
                 }
             }
@@ -761,13 +753,13 @@ mod tests {
             "~1",
             "Type error: expected boolean but found integer.",
             1,
-            3
+            1
         );
         inferfails!(
             "2 + 5 + false",
             "Type error: expected integer but found boolean.",
             1,
-            14
+            7
         );
         infer!("1 + 1", "integer");
         infer!("1 - 1", "integer");
@@ -785,7 +777,7 @@ mod tests {
             "if 1 then 1 else 2 end",
             "Type error: expected boolean but found integer.",
             1,
-            23
+            1
         );
         infer!("(1, false)", "(integer, boolean)");
         inferfails!("a + 1", "Unknown identifier: a.", 1, 1);
@@ -804,10 +796,10 @@ mod tests {
         infer!("(fn x -> x + 1 end) 1", "integer");
         inferfails!(
             "def x := (1,1)
-             x 1",
+             x (1)",
             "Type error: attempt to call non-lambda value.",
             2,
-            17
+            14
         );
         infer!("def x := 1", "integer");
         infer!("def x := false", "boolean");
@@ -822,7 +814,7 @@ mod tests {
              end",
             "(integer, integer) -> integer"
         );
-        infer!("type Maybe := Some x | None end", "Maybe");
+        infer!("type Maybe := Some (x) | None end", "Maybe");
         infer!(
             "type E := A | B end
              fn x -> A end",
@@ -830,31 +822,31 @@ mod tests {
         );
         infer!(
             "type E := A | B end
-             fn x -> A end 10",
+             fn x -> A end (10)",
             "E"
         );
         infer!(
             "type E := A | B end
-             fn x -> if x then A else B end end true",
+             fn x -> if x then A else B end end (true)",
             "E"
         );
         infer!(
-            "(def f := fn x -> x + 1 end)
-             fn x -> f x end 10",
+            "def f := fn x -> x + 1 end
+             fn x -> f x end (10)",
             "integer"
         );
         infer!(
-            "type E := A x | B end
-             fn x -> A x end 10",
+            "type E := A (x) | B end
+             fn x -> A (x) end (10)",
             "E"
         );
         infer!(
-            "type E := A(x,y) | B end
-             fn x -> A(x,x) end 10",
+            "type E := A (x, y) | B end
+             fn x -> A (x, x) end (10)",
             "E"
         );
         infer!(
-            "fn fact n ->
+            "fn fact (n) ->
                  fn iter(n, acc) ->
                     if n == 0 then
                        acc
@@ -916,8 +908,8 @@ mod tests {
              end
             ",
             "Type error: expected boolean but found integer.",
-            5,
-            17
+            2,
+            14
         );
         inferfails!(
             "type E := A | B end
@@ -928,8 +920,8 @@ mod tests {
              end
             ",
             "Type error: expected E but found F.",
-            6,
-            17
+            3,
+            14
         );
         inferfails!(
             "type E := A | B end
@@ -940,8 +932,8 @@ mod tests {
              end
             ",
             "Match statement: expected datatype.",
-            6,
-            17
+            3,
+            14
         );
         inferfails!(
             "type E := A | B end
@@ -953,13 +945,13 @@ mod tests {
              end
             ",
             "Type error: expected E but found F.",
-            7,
-            17
+            4,
+            14
         );
         infer!(
-            "type Maybe := Some x | None end
-             match Some 1 with
-                Some x -> x
+            "type Maybe := Some (x) | None end
+             match Some (1) with
+                Some (x) -> x
                 | None -> 0
              end
             ",
@@ -969,12 +961,12 @@ mod tests {
             "type E := A | B end
              match A with
                  A -> 0
-                | false -> 1
+                | C -> 1
              end
             ",
-            "Unknown variant in match: false.",
-            5,
-            17
+            "Unknown variant in match: C.",
+            2,
+            14
         );
         inferfails!(
             "type E := A | B | C | D end
@@ -983,8 +975,8 @@ mod tests {
              end
             ",
             "Missing variants in match of E: B C D.",
-            4,
-            17
+            2,
+            14
         );
     }
 }

@@ -3,6 +3,10 @@ use std::env;
 use std::fs::File;
 use std::io::prelude::*;
 
+extern crate pest;
+#[macro_use]
+extern crate pest_derive;
+
 mod codegen;
 mod parser;
 mod typeinfer;
@@ -14,7 +18,7 @@ use std::io::{self, BufRead, Write};
 fn eval(filename: &str, src: &str, vm: &mut vm::VirtualMachine) {
     let lines: Vec<&str> = src.split('\n').collect();
     match parser::parse(&src) {
-        parser::ParseResult::Matched(ast, _) => match codegen::eval(vm, &ast) {
+        Ok(ast) => match codegen::eval(vm, &ast) {
             Ok(v) => {
                 println!("{}", v);
             }
@@ -31,19 +35,8 @@ fn eval(filename: &str, src: &str, vm: &mut vm::VirtualMachine) {
                 vm.stack.drain(0..);
             }
         },
-        parser::ParseResult::NotMatched(_) => {
-            println!("parse did not match any productions!?");
-        }
-        parser::ParseResult::Error(err, line, col) => {
-            let line = min(lines.len(), line);
-            let col = min(lines[line - 1].len(), col);
-            let width = line.to_string().len() + 2;
-            println!("{}", err);
-            println!("{s:>width$}|", s = " ", width = width);
-            println!(" {} | {}", line, lines[line - 1]);
-            print!("{s:>width$}|", s = " ", width = width);
-            println!("{s:>width$}^", s = " ", width = col);
-            println!("--> {}:{}", filename, line);
+        Err(err) => {
+            println!("{}", err.msg);
         }
     }
 }

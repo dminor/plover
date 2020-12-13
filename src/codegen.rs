@@ -418,7 +418,7 @@ mod tests {
         ($input:expr, Datatype, $value:expr) => {{
             let mut vm = vm::VirtualMachine::new();
             match parser::parse($input) {
-                parser::ParseResult::Matched(ast, _) => match codegen::eval(&mut vm, &ast) {
+                Ok(ast) => match codegen::eval(&mut vm, &ast) {
                     Ok(v) => match v {
                         Value::Datatype(_, _, v) => {
                             assert_eq!(v, $value);
@@ -431,10 +431,7 @@ mod tests {
                         assert!(false);
                     }
                 },
-                parser::ParseResult::NotMatched(_) => {
-                    assert!(false);
-                }
-                parser::ParseResult::Error(_, _, _) => {
+                Err(_) => {
                     assert!(false);
                 }
             }
@@ -442,7 +439,7 @@ mod tests {
         ($input:expr, Tuple, $($value:expr),*) => {{
             let mut vm = vm::VirtualMachine::new();
             match parser::parse($input) {
-                parser::ParseResult::Matched(ast, _) => match codegen::eval(&mut vm, &ast) {
+                Ok(ast) => match codegen::eval(&mut vm, &ast) {
                     Ok(v) => match v {
                         Value::Tuple(elements) => {
                             let mut i = 0;
@@ -461,10 +458,7 @@ mod tests {
                         assert!(false);
                     }
                 },
-                parser::ParseResult::NotMatched(_) => {
-                    assert!(false);
-                }
-                parser::ParseResult::Error(_, _, _) => {
+                Err(_) => {
                     assert!(false);
                 }
             }
@@ -472,7 +466,7 @@ mod tests {
         ($input:expr, Unit) => {{
             let mut vm = vm::VirtualMachine::new();
             match parser::parse($input) {
-                parser::ParseResult::Matched(ast, _) => match codegen::eval(&mut vm, &ast) {
+                Ok(ast) => match codegen::eval(&mut vm, &ast) {
                     Ok(v) => {
                         assert_eq!(v, Value::Unit);
                     },
@@ -480,10 +474,7 @@ mod tests {
                         assert!(false);
                     }
                 },
-                parser::ParseResult::NotMatched(_) => {
-                    assert!(false);
-                }
-                parser::ParseResult::Error(_, _, _) => {
+                Err(_) => {
                     assert!(false);
                 }
             }
@@ -491,7 +482,7 @@ mod tests {
         ($input:expr, $type:tt, $value:expr) => {{
             let mut vm = vm::VirtualMachine::new();
             match parser::parse($input) {
-                parser::ParseResult::Matched(ast, _) => match codegen::eval(&mut vm, &ast) {
+                Ok(ast) => match codegen::eval(&mut vm, &ast) {
                     Ok(v) => match v {
                         Value::$type(t) => {
                             assert_eq!(t, $value);
@@ -504,10 +495,7 @@ mod tests {
                         assert!(false);
                     }
                 },
-                parser::ParseResult::NotMatched(_) => {
-                    assert!(false);
-                }
-                parser::ParseResult::Error(_, _, _) => {
+                Err(_) => {
                     assert!(false);
                 }
             }
@@ -518,7 +506,7 @@ mod tests {
         ($input:expr, $err:expr) => {{
             let mut vm = vm::VirtualMachine::new();
             match parser::parse($input) {
-                parser::ParseResult::Matched(ast, _) => match codegen::eval(&mut vm, &ast) {
+                Ok(ast) => match codegen::eval(&mut vm, &ast) {
                     Ok(_) => {
                         assert!(false);
                     }
@@ -526,10 +514,7 @@ mod tests {
                         assert_eq!(err.err, $err);
                     }
                 },
-                parser::ParseResult::NotMatched(_) => {
-                    assert!(false);
-                }
-                parser::ParseResult::Error(_, _, _) => {
+                Err(_) => {
                     assert!(false);
                 }
             }
@@ -620,103 +605,93 @@ mod tests {
             Value::Integer(2)
         );
         evalfails!(
-            "fn 1 -> 5 end",
-            "Type error: lambda parameter must be identifier or tuple of identifiers."
-        );
-        evalfails!(
             "fn (a, 1) -> 5 end",
             "Type error: lambda parameter must be identifier or tuple of identifiers."
         );
-        eval!("(fn x -> x + 1 end) 1", Integer, 2);
-        eval!("(fn x -> ~x end) false", Boolean, true);
+        eval!("fn x -> x + 1 end (1)", Integer, 2);
+        eval!("fn x -> ~x end (false)", Boolean, true);
         evalfails!(
-            "(fn x -> x + 1 end) true",
+            "fn x -> x + 1 end (true)",
             "Type error: expected integer but found boolean."
         );
         evalfails!(
-            "(fn (x, y) -> x + y + 1 end) true",
+            "fn (x, y) -> x + y + 1 end (true)",
             "Type error: expected (integer, integer) but found boolean."
         );
         eval!(
-            "(fn x -> (x + 1, 1, 2) end) 1",
+            "fn x -> (x + 1, 1, 2) end (1)",
             Tuple,
             Value::Integer(2),
             Value::Integer(1),
             Value::Integer(2)
         );
-        eval!("(fn (x, y) -> x + y end) (1, 2)", Integer, 3);
+        eval!("fn (x, y) -> x + y end (1, 2)", Integer, 3);
         eval!("(1, 1) == (1, 0)", Boolean, false);
         eval!("(1, 1, 1) == (1, 1, 0)", Boolean, false);
         eval!("(1, 1, 1, 1) == (1, 1, 1, 0)", Boolean, false);
         eval!("(1, 1, 1, 1) == (1, 1, 1, 1)", Boolean, true);
         eval!("(1, 1) ~= (1, 0)", Boolean, true);
         eval!("def x := 42", Integer, 42);
-        eval!("def f := fn x -> x + 1 end 1", Integer, 2);
+        eval!("def f := fn x -> x + 1 end (1)", Integer, 2);
         eval!(
             "def t := 1
              def f := fn x -> x + t end
              def t := 2
-             f 1",
+             f (1)",
             Integer,
             2
         );
         eval!(
             "def t := 1
-             (def f := fn x ->
+             def f := fn x ->
                  def t := 2
                  x + t
-             end)
-             f 1",
+             end
+             f (1)",
             Integer,
             3
         );
         eval!(
-            "(def f := fn t -> fn x -> x + t end end)
-             (f 2) 1",
-            Integer,
-            3
-        );
-        eval!(
-            "(def f := fn (x, y) -> x == y end)
+            "def f := fn (x, y) -> x == y end
              f (1, 2)",
             Boolean,
             false
         );
         eval!(
-            "(def f := fn (x, y) -> x == y end)
+            "def f := fn (x, y) -> x == y end
              f (1, false)",
             Boolean,
             false
         );
         eval!(
-            "(def f := fn (x, y) -> x == y end)
+            "def f := fn (x, y) -> x == y end
              f (1, 1)",
             Boolean,
             true
         );
         eval!(
-            "(def f := fn (x, y) -> x == y end)
-             (def g := fn (x, y) -> x == y end)
+            "def f := fn (x, y) -> x == y end
+             def g := fn (x, y) -> x == y end
              f (f, g)",
             Boolean,
             false
         );
         eval!(
-            "type Maybe := Some x | None end
+            "type Maybe := Some (x) | None end
              None",
             Datatype,
             Box::new(vm::Value::Unit)
         );
         eval!(
-            "type Maybe := Some x | None end
-             Some 42",
+            "type Maybe := Some (x) | None end
+             Some (42)",
             Datatype,
             Box::new(vm::Value::Integer(42))
         );
         eval!(
-            "type Maybe := Some x | None end
-             fn f x -> Some x end
-             f 42",
+            "type Maybe := Some (x) | None end
+             fn f(x) -> Some (x) end
+             f (42)",
             Datatype,
             Box::new(vm::Value::Integer(42))
         );
@@ -749,7 +724,7 @@ mod tests {
             120
         );
         eval!(
-            "fn fact n ->
+            "fn fact (n) ->
                 fn iter (n, acc) ->
                      if n == 0 then
                         acc
@@ -759,7 +734,7 @@ mod tests {
                 end
                 iter (n, 1)
              end
-             fact 5
+             fact (5)
         ",
             Integer,
             120
@@ -775,9 +750,9 @@ mod tests {
             1
         );
         eval!(
-            "type Maybe := Some x | None end
-             match Some 1 with
-                Some x -> x
+            "type Maybe := Some (x) | None end
+             match Some (1) with
+                Some (x) -> x
                 | None -> 0
              end
             ",
@@ -786,13 +761,13 @@ mod tests {
         );
         eval!(
             "type Pair := Cons (a, b) | Null end
-             fn sum pair ->
+             fn sum (pair) ->
                  match pair with
                     Null -> 0
                     | Cons (a, b) -> a + b
                  end
              end
-             sum Null
+             sum (Null)
             ",
             Integer,
             0
@@ -800,13 +775,13 @@ mod tests {
         eval!(
             "type Pair := Cons (a, b) | Null end
              def p := Cons(1, 2)
-             fn sum pair ->
+             fn sum (pair) ->
                  match pair with
                     Null -> 0
                     | Cons (a, b) -> a + b
                  end
              end
-             sum p
+             sum (p)
             ",
             Integer,
             3
@@ -814,13 +789,13 @@ mod tests {
         eval!(
             "type Pair := Cons (a, b) | Null end
              def p := Cons(3, Cons(2, Cons(1, Null)))
-             fn len pair ->
+             fn len (pair) ->
                  match pair with
                     Null -> 0
-                    | Cons (a, b) -> 1 + len b
+                    | Cons (a, b) -> 1 + len (b)
                  end
              end
-             len p
+             len (p)
             ",
             Integer,
             3

@@ -1,0 +1,60 @@
+WHITESPACE = _{ " " | "\t" | "\r" | "\n"}
+
+boolean = { "true" | "false" }
+function = { "fn" ~ identifier? ~ ( "(" ~ identifier ~ ")" | unit | tuple )?
+                  ~ "->" ~ body ~ "end" }
+body = { expression ~ ( expression )* }
+identifier = @{ !( "if" | "def" | "else" | "elsif" | "end" | "false" |
+                   "fn" | "match" | "then" | "true" | "type" | "with" )
+                   ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_" )* }
+number = @{ ( ASCII_DIGIT )+ }
+tuple = { "(" ~ expression ~ "," ~ ( expression ~ "," )* ~ expression? ~ ")" }
+unit = { "(" ~ ")" }
+
+addition_op = { minus | or | plus }
+comparison_op = {  greater_equal | less_equal | greater | less }
+equality_op = { not_equal | equal }
+multiplication_op = { and | divide | modulus | multiply }
+unary_op = { not | minus }
+
+and = { "&&" }
+divide = { "/" }
+equal = { "==" }
+greater = { ">" }
+greater_equal = { ">=" }
+less = { "<" }
+less_equal = { "<=" }
+minus = { "-" }
+modulus = { "%" }
+multiply = { "*" }
+not = { "~" }
+not_equal = { "~=" }
+or = { "||" }
+plus = { "+" }
+
+expression = _{ conditional | datatype | def | match_expr }
+conditional = { "if" ~ equality ~ "then" ~ expression ~
+                ( "elsif" ~ equality ~ "then" ~ expression )*
+                ~ "else" ~ expression ~ "end" | equality }
+datatype = { "type" ~ identifier ~ ":=" ~ variant ~ ( "|" ~ variant )* ~ "end" }
+variant = { identifier ~
+            ( "(" ~ identifier ~ ")" |
+             "(" ~ identifier ~ "," ~ ( identifier ~ "," )* ~ identifier? ~ ")" )? }
+match_expr = { "match" ~ expression ~ "with" ~
+               variant ~ "->" ~ expression ~
+               ( "|" ~ variant ~ "->" ~ expression )* ~ "end" }
+def = { "def" ~ identifier ~ ":=" ~ expression }
+equality = { comparison ~ ( equality_op ~ comparison )* }
+comparison = { addition ~ ( comparison_op ~ addition )* }
+addition = { multiplication ~ ( addition_op ~ multiplication )* }
+multiplication = { unary ~ ( multiplication_op ~ unary )* }
+unary = { unary_op ~ unary | call } 
+call = { ( identifier | function | "(" ~ call ~ ")" ) ~ ( "(" ~ expression ~ ")" | tuple | unit ) | value }
+value = { identifier | boolean | number | unit | "(" ~ equality ~ ")" |
+          tuple | function }
+
+program = {
+    SOI ~
+    ( expression )* ~
+    EOI
+}
