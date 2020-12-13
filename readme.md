@@ -63,7 +63,7 @@ type AorB := A | B end
 Type variants can optionally take arguments:
 
 ```
-type Option := Some x | None end
+type Option := Some (x) | None end
 ```
 
 In this case, a constructor function is generated that takes an argument and
@@ -124,7 +124,7 @@ Division by zero results in a runtime error.
 Tuples are a fixed size comma-separated list of other values:
 
 ```
-(2, false, fn x -> x + 1 end, (1, 2))
+(2, false, fn (x) -> x + 1 end, (1, 2))
 ```
 
 Expressions
@@ -165,14 +165,14 @@ A function call consists of a function value followed by the value to which the
 function is applied.
 
 ```
-fn f x -> x + 1 end
+fn f (x) -> x + 1 end
 f (1)
 ```
 
 Functions can be called by placing a value next to the function definition.
 
 ```
-fn x -> x + 1 end (1)
+fn (x) -> x + 1 end (1)
 ```
 
 This lead to some annoying ambiguities as to whether a function call was intended
