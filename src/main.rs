@@ -53,7 +53,7 @@ fn main() -> io::Result<()> {
 
     let stdin = io::stdin();
     let mut stdout = io::stdout();
-    println!("Welcome to Tern!");
+    println!("Welcome to Plover!");
     print!("> ");
     stdout.flush()?;
 

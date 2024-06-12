@@ -4,8 +4,8 @@ use crate::pest::Parser;
 use pest::iterators::Pair;
 
 #[derive(Parser)]
-#[grammar = "tern.pest"]
-pub struct TernParser;
+#[grammar = "plover.pest"]
+pub struct PloverParser;
 
 #[derive(Clone, Debug)]
 pub enum Operator {
@@ -421,7 +421,7 @@ fn astify(pair: Pair<Rule>) -> AST {
 }
 
 pub fn parse(src: &str) -> Result<AST, ParseError> {
-    match TernParser::parse(Rule::program, src) {
+    match PloverParser::parse(Rule::program, src) {
         Ok(mut program) => Ok(astify(program.next().unwrap())),
         Err(err) => Err(ParseError {
             msg: err.to_string(),
